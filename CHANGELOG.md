@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.0](https://github.com/yarkingulacti/muxdev-cli/compare/v1.0.0...v1.1.0) (2026-06-18)
+
+
+### Features
+
+* **tui:** add interactive muxdev.yaml configure wizard ([f00a297](https://github.com/yarkingulacti/muxdev-cli/commit/f00a297e7b1eed36e044635feae8a2ca9064fdc9))
+
+
+### Bug Fixes
+
+* **ci:** checkout release tag on manual dispatch ([620dc45](https://github.com/yarkingulacti/muxdev-cli/commit/620dc45b0d48f9eb62ff63322fe6ea8cb3bdf793))
+* **ci:** release only on master tag from release please ([83db028](https://github.com/yarkingulacti/muxdev-cli/commit/83db0282de136b27efe15a0643e563d9b26d7bd0))
+
 ## 1.0.0 (2026-06-18)
 
 
