@@ -92,9 +92,15 @@ main() {
 
   url="https://github.com/${REPO}/releases/download/${tag}/${asset}"
   tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$tmpdir"' EXIT
+  trap 'rm -rf "${tmpdir:-}"' EXIT
 
-  checksums="$(curl -fsSL "https://github.com/${REPO}/releases/download/${tag}/checksums.txt")"
+  checksums="$(curl -fsSL -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/${REPO}/releases/tags/${tag}" \
+    | sed -n 's/.*"browser_download_url":[[:space:]]*"\([^"]*checksums.txt\)".*/\1/p' | head -n1)"
+  if [ -z "$checksums" ]; then
+    checksums="https://github.com/${REPO}/releases/download/${tag}/checksums.txt"
+  fi
+  checksums="$(curl -fsSL "$checksums")"
 
   if [[ "$CHECK_ONLY" == "1" ]]; then
     printf 'Latest release: %s (%s)\n' "$tag" "$asset"

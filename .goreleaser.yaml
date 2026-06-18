@@ -52,6 +52,7 @@ brews:
       owner: yarkingulacti
       name: homebrew-tap
       branch: master
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     directory: Formula
     homepage: https://github.com/yarkingulacti/muxdev-cli
     description: Multiplexed dev stack runner
@@ -69,10 +70,11 @@ scoops:
       owner: yarkingulacti
       name: scoop-bucket
       branch: master
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/yarkingulacti/muxdev-cli
     description: Multiplexed dev stack runner
     license: MIT
-    persist: []
+    directory: bucket
 
 release:
   github:

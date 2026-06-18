@@ -652,7 +652,8 @@ git push origin v0.1.1
 
 ## Open decisions (deferred)
 
-- **Code signing** (macOS notarization, Windows Authenticode) — add when distributing outside dev audience
+- **Repository visibility** — repo is currently private; make public (or publish release artifacts via public channel) before `install.sh` / `muxdev update` work without GitHub auth
+- **TAP_GITHUB_TOKEN** — add repo secret with `repo` scope so Goreleaser can push Homebrew/Scoop manifests on release
 - **SBOM / provenance** — GitHub artifact attestations (optional)
 - **npm wrapper** — not planned; Go binary is the distribution unit
 - **Linux distro packages** (AUR, apt) — post-1.0 if demand exists

@@ -1,5 +1,5 @@
 PackageIdentifier: yarkingulacti.muxdev
-PackageVersion: VERSION
+PackageVersion: 1.0.0
 DefaultLocale: en-US
 PackageLocale: en-US
 Publisher: yarkingulacti
@@ -14,16 +14,16 @@ Tags:
 Installers:
   - Architecture: x64
     InstallerType: zip
-    InstallerUrl: https://github.com/yarkingulacti/muxdev-cli/releases/download/vVERSION/muxdev_VERSION_windows_amd64.zip
-    InstallerSha256: WINDOWS_AMD64_SHA256
+    InstallerUrl: https://github.com/yarkingulacti/muxdev-cli/releases/download/v1.0.0/muxdev_1.0.0_windows_amd64.zip
+    InstallerSha256: 652574889829b82e6edad5c90059f4b1e4a04d76f73d1d63d58a0365dc4c8d0f
     NestedInstallerType: portable
     NestedInstallerFiles:
       - RelativeFilePath: muxdev.exe
         PortableCommandAlias: muxdev
   - Architecture: arm64
     InstallerType: zip
-    InstallerUrl: https://github.com/yarkingulacti/muxdev-cli/releases/download/vVERSION/muxdev_VERSION_windows_arm64.zip
-    InstallerSha256: WINDOWS_ARM64_SHA256
+    InstallerUrl: https://github.com/yarkingulacti/muxdev-cli/releases/download/v1.0.0/muxdev_1.0.0_windows_arm64.zip
+    InstallerSha256: dacad32768db28516301772ff3436a3a194eff1da423d926919b685dabe6d6f8
     NestedInstallerType: portable
     NestedInstallerFiles:
       - RelativeFilePath: muxdev.exe
