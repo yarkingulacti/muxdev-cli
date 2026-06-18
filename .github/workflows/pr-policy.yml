@@ -1,0 +1,40 @@
+name: PR Policy
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+    branches: [dev, master]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  branch-flow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce dev integration flow
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+
+          if [ "$BASE" = "master" ] && [ "$HEAD" != "dev" ]; then
+            case "$HEAD" in
+              release-please--branches--*)
+                echo "Release Please PR to master — allowed"
+                exit 0
+                ;;
+            esac
+            echo "PRs to master must come from dev (integration branch)."
+            echo "Expected flow: feature/* -> PR -> dev -> PR -> master"
+            exit 1
+          fi
+
+          if [ "$BASE" = "dev" ] && [ "$HEAD" = "master" ]; then
+            echo "Do not merge master back into dev via PR; rebase dev onto master instead."
+            exit 1
+          fi
+
+          echo "Branch flow OK: ${HEAD} -> ${BASE}"
