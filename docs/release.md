@@ -7,7 +7,7 @@ This document defines how muxdev is versioned, shipped, and distributed across p
 - **SemVer tracking** via [Release Please](https://github.com/googleapis/release-please) + Conventional Commits
 - **Single source of truth** for version: git tag → binary ldflags → package manifests
 - **Full distribution**: GitHub Releases, `install.sh`, Homebrew, Scoop, winget
-- **Reproducible pipeline**: CI green on `master` → Release Please PR → merge to `master` → tag push → Goreleaser → package updates
+- **Reproducible pipeline**: feature → `dev` → `master` → Release Please tag → Goreleaser
 - **User-facing updates**: channel-aware check + apply (`muxdev update`) with package-manager delegation
 
 ## Current state
@@ -387,17 +387,20 @@ Dev builds (`go run`, `go build` without ldflags) show `dev`.
 
 ## Release policy
 
+Git flow: see [docs/git-workflow.md](git-workflow.md) for branch rules.
+
 Releases are **automatic only** through this path:
 
 ```mermaid
 flowchart LR
-  feat[Feature PR merged to master]
+  feat[feature PR merged to dev]
+  devPR[dev PR merged to master]
   rp[Release Please opens release PR]
   merge[Release PR merged to master]
-  tag[Tag vX.Y.Z pushed on master]
+  tag[Tag vX.Y.Z on master]
   rel[release.yml Goreleaser]
 
-  feat --> rp --> merge --> tag --> rel
+  feat --> devPR --> rp --> merge --> tag --> rel
 ```
 
 **Allowed triggers**
@@ -421,25 +424,24 @@ flowchart LR
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `ci.yml` | push/PR to `master` | test + build matrix |
+| `ci.yml` | push/PR to `dev` or `master` | test + build matrix |
+| `pr-policy.yml` | PR to `dev` or `master` | enforce feature→dev→master |
 | `release-please.yml` | push to `master` | open/update Release Please PR |
 | `release.yml` | push `v*` tag on `master` | Goreleaser publish |
 | `packages.yml` | GitHub Release published | validate packaging templates |
 
 ### Step-by-step (steady state)
 
-1. Developer merges feature PRs to `master` with Conventional Commits
-2. **Release Please** opens/updates `chore(master): release X.Y.Z` PR containing:
+1. Developer merges feature PRs to `dev` with Conventional Commits
+2. When ready, open PR `dev` → `master` and merge
+3. **Release Please** opens/updates `chore(master): release X.Y.Z` PR on `master` containing:
    - `CHANGELOG.md` section
-   - version bump in release manifest (not hand-edited `main.go`)
-3. Maintainer reviews changelog, merges Release PR to `master`
-4. Release Please creates git tag `vX.Y.Z` on `master`
-5. Tag push triggers **Goreleaser** (`release.yml`):
-   - 6 binaries: linux/darwin/windows × amd64/arm64
-   - `checksums.txt`
-   - GitHub Release notes from changelog
-6. **packages.yml** runs after release is published
-7. Smoke test:
+   - version bump in release manifest
+4. Maintainer reviews changelog, merges Release PR to `master`
+5. Release Please creates git tag `vX.Y.Z` on `master`
+6. Tag push triggers **Goreleaser** (`release.yml`)
+7. **packages.yml** runs after release is published
+8. Smoke test:
    - `install.sh` against new release
    - `brew install` / `scoop install` / `winget install` on each OS
 
@@ -630,9 +632,10 @@ winget install yarkingulacti.muxdev
 
 ## Maintainer runbook (routine release)
 
-No manual version edits. After features land on `master`:
+No manual version edits. After features land on `dev` and are promoted to `master`:
 
-1. Wait for Release Please PR (`chore(master): release X.Y.Z`)
+1. Merge `dev` → `master` when integration is stable
+2. Wait for Release Please PR (`chore(master): release X.Y.Z`)
 2. Review `CHANGELOG.md` diff in that PR
 3. Merge PR to `master`
 4. Confirm tag `vX.Y.Z` created on `master`
