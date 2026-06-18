@@ -51,6 +51,7 @@ brews:
     repository:
       owner: yarkingulacti
       name: homebrew-tap
+      branch: master
     directory: Formula
     homepage: https://github.com/yarkingulacti/muxdev-cli
     description: Multiplexed dev stack runner
@@ -67,6 +68,7 @@ scoops:
     repository:
       owner: yarkingulacti
       name: scoop-bucket
+      branch: master
     homepage: https://github.com/yarkingulacti/muxdev-cli
     description: Multiplexed dev stack runner
     license: MIT
