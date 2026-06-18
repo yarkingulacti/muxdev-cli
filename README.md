@@ -35,6 +35,8 @@ Or run from the repo without installing:
 ./bin/muxdev --version
 ```
 
+See [docs/local-development.md](docs/local-development.md) for a short local dev guide.
+
 ## Install
 
 ### curl (Linux / macOS / Git Bash)
