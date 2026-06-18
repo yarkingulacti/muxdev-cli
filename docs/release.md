@@ -7,7 +7,7 @@ This document defines how muxdev is versioned, shipped, and distributed across p
 - **SemVer tracking** via [Release Please](https://github.com/googleapis/release-please) + Conventional Commits
 - **Single source of truth** for version: git tag → binary ldflags → package manifests
 - **Full distribution**: GitHub Releases, `install.sh`, Homebrew, Scoop, winget
-- **Reproducible pipeline**: CI green on `main` → Release Please PR → merge → tag → Goreleaser → package updates
+- **Reproducible pipeline**: CI green on `master` → Release Please PR → merge to `master` → tag push → Goreleaser → package updates
 - **User-facing updates**: channel-aware check + apply (`muxdev update`) with package-manager delegation
 
 ## Current state
@@ -385,33 +385,60 @@ muxdev 0.1.0 (commit abc1234, 2026-06-19)
 
 Dev builds (`go run`, `go build` without ldflags) show `dev`.
 
+## Release policy
+
+Releases are **automatic only** through this path:
+
+```mermaid
+flowchart LR
+  feat[Feature PR merged to master]
+  rp[Release Please opens release PR]
+  merge[Release PR merged to master]
+  tag[Tag vX.Y.Z pushed on master]
+  rel[release.yml Goreleaser]
+
+  feat --> rp --> merge --> tag --> rel
+```
+
+**Allowed triggers**
+
+| Event | Workflow | Result |
+|-------|----------|--------|
+| Push to `master` | `release-please.yml` | Opens/updates release PR |
+| Merge release PR to `master` | Release Please | Creates `v*` tag on `master` |
+| Push `v*` tag (from master) | `release.yml` | GitHub Release + binaries |
+| GitHub Release published | `packages.yml` | Packaging validation |
+
+**Not allowed**
+
+- Manual `workflow_dispatch` on release workflows (removed)
+- Manual `git tag && git push` (tag must come from Release Please merge)
+- Release from non-`master` branches
+
 ## Release pipeline
 
 ### Workflows
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| `ci.yml` | push/PR to `main` | test + build matrix |
-| `release-please.yml` | push to `main` | open/update Release Please PR |
-| `release.yml` | push tag `v*` | Goreleaser publish |
-| `packages.yml` | after release (or dispatch) | bump Homebrew/Scoop/winget |
+| `ci.yml` | push/PR to `master` | test + build matrix |
+| `release-please.yml` | push to `master` | open/update Release Please PR |
+| `release.yml` | push `v*` tag on `master` | Goreleaser publish |
+| `packages.yml` | GitHub Release published | validate packaging templates |
 
 ### Step-by-step (steady state)
 
-1. Developer merges feature PRs to `main` with Conventional Commits
-2. **Release Please** opens/updates `chore(main): release X.Y.Z` PR containing:
+1. Developer merges feature PRs to `master` with Conventional Commits
+2. **Release Please** opens/updates `chore(master): release X.Y.Z` PR containing:
    - `CHANGELOG.md` section
    - version bump in release manifest (not hand-edited `main.go`)
-3. Maintainer reviews changelog, merges Release PR
-4. Release Please creates git tag `vX.Y.Z` on `main`
-5. Tag push triggers **Goreleaser**:
+3. Maintainer reviews changelog, merges Release PR to `master`
+4. Release Please creates git tag `vX.Y.Z` on `master`
+5. Tag push triggers **Goreleaser** (`release.yml`):
    - 6 binaries: linux/darwin/windows × amd64/arm64
    - `checksums.txt`
    - GitHub Release notes from changelog
-6. **packages.yml** opens PRs or pushes updates:
-   - Homebrew tap formula
-   - Scoop bucket manifest
-   - winget manifest (PR to community repo or own fork)
+6. **packages.yml** runs after release is published
 7. Smoke test:
    - `install.sh` against new release
    - `brew install` / `scoop install` / `winget install` on each OS
@@ -603,13 +630,13 @@ winget install yarkingulacti.muxdev
 
 ## Maintainer runbook (routine release)
 
-No manual version edits. After features land on `main`:
+No manual version edits. After features land on `master`:
 
-1. Wait for Release Please PR (`chore(main): release X.Y.Z`)
+1. Wait for Release Please PR (`chore(master): release X.Y.Z`)
 2. Review `CHANGELOG.md` diff in that PR
-3. Merge PR
-4. Confirm tag `vX.Y.Z` created automatically
-5. Watch `release.yml` + `packages.yml` Actions
+3. Merge PR to `master`
+4. Confirm tag `vX.Y.Z` created on `master`
+5. Watch `release.yml` then `packages.yml` in Actions
 6. Verify:
    - GitHub Release assets + checksums
    - `curl install.sh | bash` smoke test
@@ -618,21 +645,9 @@ No manual version edits. After features land on `main`:
 
 ### Hotfix flow
 
-1. Fix on `main` as `fix(scope): ...`
+1. Fix on `master` as `fix(scope): ...`
 2. Release Please opens PATCH bump PR
-3. Same pipeline — no special steps
-
-### Manual emergency release (fallback)
-
-Only if Release Please is broken:
-
-```bash
-# After updating CHANGELOG manually
-git tag v0.1.1
-git push origin v0.1.1
-# Goreleaser release.yml handles the rest
-# Manually bump Scoop/Homebrew/winget manifests
-```
+3. Merge to `master` — same pipeline, no manual steps
 
 ## Timeline (suggested implementation order)
 
