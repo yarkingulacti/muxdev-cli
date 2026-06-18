@@ -1,55 +1,52 @@
-# Runtime decision
+# Runtime
 
-This document frames the choice of implementation language/runtime for muxdev.
+muxdev is implemented in **Go** as a single cross-platform binary.
 
-## Candidates
+## Stack
 
-| Runtime | Pros | Cons | Fit with current code |
-|---------|------|------|------------------------|
-| **Bash** | ~800 lines of TUI already working in voice-synt; zero new runtime; fastest path to extraction | Hard to distribute and test; long-term maintenance cost | Full — move `dev-tui`, `dev-runner`, `dev-picker`, etc. |
-| **Go + bubbletea** | Single static binary; solid signal/resize handling; `go install` | 2–4 week rewrite | Same `muxdev.yaml`; engine swap only |
-| **Rust + ratatui** | Fast, modern TUI ecosystem | Steeper learning curve; rewrite cost | Same manifest |
-| **Node + ink** | npm ecosystem | Requires Node; shell orchestration still needed | Partial |
+| Layer | Choice |
+|-------|--------|
+| CLI | [cobra](https://github.com/spf13/cobra) |
+| Config | `gopkg.in/yaml.v3` — `muxdev.yaml` |
+| TUI | [bubbletea](https://github.com/charmbracelet/bubbletea) |
+| Process runner | `os/exec` + platform-specific signal handling |
 
-## Recommended path
+## Why Go
 
-### Phase 1 — Bash (short term)
+- Single static binary for Windows, macOS, and Linux
+- Native Windows support without WSL
+- Mature TUI ecosystem (bubbletea)
+- Straightforward cross-compilation and Goreleaser distribution
 
-- Move generic libs from voice-synt into `muxdev/lib/`
-- Introduce `muxdev.yaml` config loader
-- Keep voice-synt as thin wrapper + project-specific preflight (Postgres, Prisma)
+## Reference implementation
 
-**When to choose:** You want voice-synt working with muxdev within days, not weeks.
+The Bash TUI in [voice-synt](https://github.com/yarkingulacti/voice-synt) (`scripts/lib/dev-*.sh`) is the behavioral reference. It is not shipped; behavior is ported into Go.
 
-### Phase 2 — Freeze config schema (medium term)
+## Platform notes
 
-- Stabilize `muxdev.yaml` fields: `name`, `services`, `preflight`, `env`
-- Bash implementation enters maintenance mode (bugfixes only)
+| OS | Shell wrapper | Command execution |
+|----|---------------|-------------------|
+| Linux / macOS | `/bin/sh -c` | Native shell commands |
+| Windows | `cmd.exe /C` | Native commands; `bash script.sh` requires WSL or Git Bash |
 
-### Phase 3 — Go binary (long term, optional)
+## Development
 
-- Reimplement TUI/runner in Go against the same manifest
-- Ship `muxdev` as a single binary via GitHub releases or `go install`
-- voice-synt consumers change nothing except installing the binary
+```bash
+# Run from repo (wrapper)
+./bin/muxdev --list --config testdata/muxdev.yaml
 
-**When to choose:** You need reliable distribution, CI tests, or plan to open-source / publish to npm/Homebrew.
+# Or build directly
+go build -o muxdev ./cmd/muxdev
+./muxdev --version
+```
 
-## Decision questions
+## Roadmap
 
-Answer these before committing to Phase 1 vs jumping to Go:
-
-1. **Audience** — Only your own projects, or public npm/binary distribution?
-2. **Distribution** — Is `bash + lib/` acceptable, or is a single binary required?
-3. **Testing** — How much automated CI do you need (unit tests for TUI logic, integration with fake services)?
-4. **Timeline** — Days (Bash) vs weeks (Go rewrite)?
-
-## Current recommendation
-
-**Start with Bash (Phase 1).** The voice-synt TUI is production-tested. Extract it, define `muxdev.yaml`, integrate voice-synt. Revisit Go when the config schema is stable and distribution becomes a pain point.
-
-## Next steps after decision
-
-- [ ] Extract `lib/` from voice-synt `scripts/lib/dev-{tui,runner,picker,colors,logo,service-wrap}.sh`
-- [ ] Implement `muxdev.yaml` parser (bash + `yq` or minimal JSON subset)
-- [ ] Add `bin/muxdev` entry that loads config from cwd
-- [ ] voice-synt: `pnpm dev` → `muxdev` + project `muxdev.yaml`
+- [x] Go module + CLI skeleton
+- [x] `muxdev.yaml` loader and validation
+- [x] `--list`, `--focus`, `--no-interactive`
+- [x] Interactive TUI (picker + log viewport)
+- [x] Goreleaser + GitHub Actions (linux/macos/windows)
+- [x] Install script (`scripts/install.sh`)
+- [ ] Homebrew / Scoop manifests
+- [ ] voice-synt consumer integration

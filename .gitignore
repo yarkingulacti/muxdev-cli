@@ -6,3 +6,8 @@
 .DS_Store
 *.swp
 *~
+
+# Go build artifacts
+/dist/
+/muxdev
+/muxdev.exe

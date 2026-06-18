@@ -1,44 +1,6 @@
 #!/usr/bin/env bash
-# muxdev — multiplexed dev stack runner
+# Developer wrapper — builds and runs the Go CLI from the repo root.
 set -euo pipefail
 
-MUXDEV_VERSION="0.0.1"
-MUXDEV_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-usage() {
-  cat <<EOF
-muxdev v${MUXDEV_VERSION} — multiplexed dev stack runner
-
-Usage:
-  muxdev [options]
-
-Options:
-  -h, --help       Show this help
-  -V, --version    Show version
-
-Status: bootstrap — full runner not yet extracted from voice-synt.
-See https://github.com/yarkingulacti/muxdev-cli
-EOF
-}
-
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    -V|--version)
-      printf 'muxdev %s\n' "$MUXDEV_VERSION"
-      exit 0
-      ;;
-    *)
-      printf 'muxdev: unknown option: %s\n' "$1" >&2
-      usage >&2
-      exit 1
-      ;;
-  esac
-done
-
-printf 'muxdev v%s — runner not yet implemented.\n' "$MUXDEV_VERSION" >&2
-printf 'See docs/runtime.md for the extraction roadmap.\n' >&2
-exit 1
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec go run "${ROOT}/cmd/muxdev" "$@"

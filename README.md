@@ -21,18 +21,43 @@ https://github.com/yarkingulacti/muxdev-cli
 
 ## Status
 
-Bootstrap phase. Runtime and core extraction from the first consumer ([voice-synt](https://github.com/yarkingulacti/voice-synt)) are in progress.
+Go CLI with interactive TUI (service picker + log panel), non-interactive mode, and cross-platform release tooling.
 
-## Usage (planned)
+## Build
 
 ```bash
-# From any project root with muxdev.yaml
+go build -o muxdev ./cmd/muxdev
+```
+
+Or run from the repo without installing:
+
+```bash
+./bin/muxdev --version
+```
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yarkingulacti/muxdev-cli/main/scripts/install.sh | bash
+```
+
+## Usage
+
+```bash
+# Interactive TUI (picker + log panel)
 muxdev
 
-# Options (planned)
-muxdev --focus=backend,ui
-muxdev --no-interactive
+# List configured services
 muxdev --list
+
+# Run a subset (includes dependencies)
+muxdev --focus=backend,ui
+
+# Plain multiplexed logs (CI / pipes)
+muxdev --no-interactive
+
+# Explicit config path
+muxdev --config ./muxdev.yaml --list
 ```
 
 ## Project manifest (planned)
@@ -62,6 +87,10 @@ services:
 ## Runtime
 
 See [docs/runtime.md](docs/runtime.md) for the runtime decision framework (Bash vs Go vs alternatives).
+
+## Release & distribution
+
+See [docs/release.md](docs/release.md) for SemVer (Release Please), Goreleaser shipping, install channels (GitHub, Homebrew, Scoop, winget), and the update mechanism (`muxdev update`).
 
 ## License
 

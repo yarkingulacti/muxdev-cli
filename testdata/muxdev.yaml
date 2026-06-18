@@ -1,0 +1,15 @@
+name: My App
+subtitle: Local development stack
+
+services:
+  backend:
+    label: Backend
+    command: echo backend-started && sleep 30
+    port: "${BACKEND_PORT}"
+    depends_on: []
+
+  ui:
+    label: Web UI
+    command: echo ui-started && sleep 30
+    port: "${UI_PORT}"
+    depends_on: [backend]
