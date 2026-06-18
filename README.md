@@ -95,6 +95,12 @@ muxdev --focus=backend,ui
 # Plain multiplexed logs (CI / pipes)
 muxdev --no-interactive
 
+# Create muxdev.yaml interactively
+muxdev init
+
+# Edit existing config interactively
+muxdev configure
+
 # Explicit config path
 muxdev --config ./muxdev.yaml --list
 ```
@@ -129,7 +135,11 @@ See [docs/runtime.md](docs/runtime.md) for the runtime decision framework (Bash 
 
 ## Release & distribution
 
-See [docs/release.md](docs/release.md) for SemVer (Release Please), Goreleaser shipping, install channels (GitHub, Homebrew, Scoop, winget), and the update mechanism (`muxdev update`).
+See [docs/release.md](docs/release.md) for SemVer and Goreleaser shipping.
+
+## Git workflow
+
+See [docs/git-workflow.md](docs/git-workflow.md) for branch flow: `feature/*` → PR → `dev` → PR → `master` → release.
 
 ## License
 
