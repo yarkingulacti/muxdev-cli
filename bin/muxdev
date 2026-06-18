@@ -17,7 +17,7 @@ Options:
   -V, --version    Show version
 
 Status: bootstrap — full runner not yet extracted from voice-synt.
-See https://github.com/yarkingulacti/muxdev
+See https://github.com/yarkingulacti/muxdev-cli
 EOF
 }
 

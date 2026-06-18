@@ -15,6 +15,10 @@ Monorepo dev scripts grow into large, project-coupled bash files: service picker
 - Fixed-layout TUI (header metadata card, scrollable logs, keyboard shortcuts)
 - Clean startup and shutdown
 
+## Repository
+
+https://github.com/yarkingulacti/muxdev-cli
+
 ## Status
 
 Bootstrap phase. Runtime and core extraction from the first consumer ([voice-synt](https://github.com/yarkingulacti/voice-synt)) are in progress.
