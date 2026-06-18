@@ -21,7 +21,10 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X main.version={{.Version}}
+      - -X github.com/yarkingulacti/muxdev-cli/internal/version.Version={{.Version}}
+      - -X github.com/yarkingulacti/muxdev-cli/internal/version.Commit={{.Commit}}
+      - -X github.com/yarkingulacti/muxdev-cli/internal/version.Date={{.Date}}
+      - -X github.com/yarkingulacti/muxdev-cli/internal/version.InstallMethod=direct
 
 archives:
   - id: default
@@ -42,6 +45,32 @@ changelog:
     exclude:
       - "^docs:"
       - "^chore:"
+
+brews:
+  - name: muxdev
+    repository:
+      owner: yarkingulacti
+      name: homebrew-tap
+    directory: Formula
+    homepage: https://github.com/yarkingulacti/muxdev-cli
+    description: Multiplexed dev stack runner
+    license: MIT
+    test: system "#{bin}/muxdev version --short"
+    install: |
+      bin.install "muxdev"
+    commit_author:
+      name: goreleaser
+      email: goreleaser@carlosbecker.com
+
+scoops:
+  - name: muxdev
+    repository:
+      owner: yarkingulacti
+      name: scoop-bucket
+    homepage: https://github.com/yarkingulacti/muxdev-cli
+    description: Multiplexed dev stack runner
+    license: MIT
+    persist: []
 
 release:
   github:

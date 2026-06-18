@@ -47,10 +47,11 @@ type runnerModel struct {
 	runErr     error
 	done       bool
 	mu         sync.Mutex
+	updateHint string
 }
 
-func runLogs(cfg *config.Config, serviceIDs []string, workDir string) error {
-	model := newRunnerModel(cfg, serviceIDs, workDir)
+func runLogs(cfg *config.Config, serviceIDs []string, workDir, updateHint string) error {
+	model := newRunnerModel(cfg, serviceIDs, workDir, updateHint)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	final, err := p.Run()
 	if err != nil {
@@ -60,12 +61,13 @@ func runLogs(cfg *config.Config, serviceIDs []string, workDir string) error {
 	return m.runErr
 }
 
-func newRunnerModel(cfg *config.Config, serviceIDs []string, workDir string) runnerModel {
+func newRunnerModel(cfg *config.Config, serviceIDs []string, workDir, updateHint string) runnerModel {
 	return runnerModel{
 		cfg:        cfg,
 		serviceIDs: serviceIDs,
 		workDir:    workDir,
 		lines:      make([]string, 0, 256),
+		updateHint: updateHint,
 	}
 }
 
@@ -176,6 +178,9 @@ func (m runnerModel) View() string {
 	}
 
 	footer := helpStyle.Render("↑/↓ scroll  pgup/pgdn  q quit")
+	if m.updateHint != "" {
+		footer = helpStyle.Render(m.updateHint + "  |  ↑/↓ scroll  pgup/pgdn  q quit")
+	}
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
 }
 

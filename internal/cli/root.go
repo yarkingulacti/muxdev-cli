@@ -1,149 +1,88 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 
-	"github.com/yarkingulacti/muxdev-cli/internal/config"
-	"github.com/yarkingulacti/muxdev-cli/internal/runner"
-	"github.com/yarkingulacti/muxdev-cli/internal/tui"
+	"github.com/yarkingulacti/muxdev-cli/internal/version"
 )
 
-type Options struct {
-	Version       string
-	ConfigPath    string
-	List          bool
-	NoInteractive bool
-	Focus         string
-}
-
-func NewRoot(opts Options) *cobra.Command {
-	var focus string
+func newVersionCmd() *cobra.Command {
+	var short bool
+	var asJSON bool
 
 	cmd := &cobra.Command{
-		Use:   "muxdev",
-		Short: "Multiplexed dev stack runner",
-		Long:  "Config-driven local development orchestrator with an interactive terminal UI.",
+		Use:   "version",
+		Short: "Print version information",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if asJSON {
+				out, err := version.JSON()
+				if err != nil {
+					return err
+				}
+				fmt.Println(out)
+				return nil
+			}
+			if short {
+				fmt.Println(version.Short())
+				return nil
+			}
+			fmt.Println(version.String())
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&short, "short", false, "Print version number only")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Print version as JSON")
+
+	return cmd
+}
+
+func NewRoot() *cobra.Command {
+	var focus string
+	opts := defaultOptions()
+
+	root := &cobra.Command{
+		Use:     "muxdev",
+		Short:   "Multiplexed dev stack runner",
+		Long:    "Config-driven local development orchestrator with an interactive terminal UI.",
+		Version: version.String(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(opts, focus)
 		},
 	}
 
-	cmd.Flags().StringVarP(&opts.ConfigPath, "config", "c", "", "Path to muxdev.yaml (default: search upward from cwd)")
-	cmd.Flags().BoolVar(&opts.List, "list", false, "List configured services and exit")
-	cmd.Flags().BoolVar(&opts.NoInteractive, "no-interactive", false, "Run without the interactive TUI")
-	cmd.Flags().StringVar(&focus, "focus", "", "Comma-separated service IDs to run")
+	root.Flags().StringVarP(&opts.ConfigPath, "config", "c", "", "Path to muxdev.yaml (default: search upward from cwd)")
+	root.Flags().BoolVar(&opts.List, "list", false, "List configured services and exit")
+	root.Flags().BoolVar(&opts.NoInteractive, "no-interactive", false, "Run without the interactive TUI")
+	root.Flags().StringVar(&focus, "focus", "", "Comma-separated service IDs to run")
 
-	cmd.Version = opts.Version
+	root.AddCommand(newVersionCmd())
+	root.AddCommand(newUpdateCmd())
 
-	return cmd
+	return root
 }
 
-func run(opts Options, focus string) error {
-	cfgPath, err := resolveConfigPath(opts.ConfigPath)
-	if err != nil {
-		return err
-	}
-
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return err
-	}
-
-	if opts.List {
-		printServiceList(cfg)
-		return nil
-	}
-
-	focusIDs := parseFocus(focus)
-	interactive := !opts.NoInteractive && isTerminal(os.Stdout)
-
-	if interactive {
-		err := tui.Run(tui.Options{
-			Cfg:     cfg,
-			Focus:   focusIDs,
-			WorkDir: ".",
-		})
-		if errors.Is(err, tui.ErrAborted) {
-			return nil
-		}
-		return err
-	}
-
-	serviceIDs, err := cfg.ResolveServices(focusIDs)
-	if err != nil {
-		return err
-	}
-
-	r := runner.New(cfg, serviceIDs)
-	return r.Run(cmdContext())
+func defaultOptions() Options {
+	return Options{}
 }
 
-func isTerminal(out *os.File) bool {
-	return term.IsTerminal(int(out.Fd()))
+type exitError struct {
+	code int
+	msg  string
 }
 
-func resolveConfigPath(explicit string) (string, error) {
-	if explicit != "" {
-		return explicit, nil
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("get working directory: %w", err)
-	}
-	return config.FindDefault(cwd)
+func (e exitError) Error() string {
+	return e.msg
 }
 
-func parseFocus(raw string) []string {
-	if strings.TrimSpace(raw) == "" {
-		return nil
+func ExitCode(err error) int {
+	if err == nil {
+		return 0
 	}
-	parts := strings.Split(raw, ",")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			out = append(out, part)
-		}
+	if ee, ok := err.(exitError); ok {
+		return ee.code
 	}
-	return out
-}
-
-func printServiceList(cfg *config.Config) {
-	ids, err := cfg.SortedServiceIDs()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "muxdev: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Printf("%s", cfg.Name)
-	if cfg.Subtitle != "" {
-		fmt.Printf(" — %s", cfg.Subtitle)
-	}
-	fmt.Println()
-
-	for _, id := range ids {
-		svc := cfg.Services[id]
-		fmt.Printf("  %s (%s)\n", id, svc.Label)
-		fmt.Printf("    command: %s\n", svc.Command)
-		if svc.Port != "" {
-			fmt.Printf("    port: %s\n", svc.Port)
-		}
-		if len(svc.DependsOn) > 0 {
-			fmt.Printf("    depends_on: %s\n", strings.Join(svc.DependsOn, ", "))
-		}
-	}
-}
-
-func cmdContext() runner.Context {
-	return runner.Context{
-		WorkDir: ".",
-		Stdout:  os.Stdout,
-		Stderr:  os.Stderr,
-	}
+	return 1
 }

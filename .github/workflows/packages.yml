@@ -1,0 +1,40 @@
+name: Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag (e.g. v0.1.0)
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  sync-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ github.event.release.tag_name }}" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate packaging templates
+        run: |
+          test -f packaging/homebrew/muxdev.rb
+          test -f packaging/scoop/muxdev.json
+          test -f packaging/winget/yarkingulacti.muxdev.yaml
+          test -f packaging/winget/yarkingulacti.muxdev.installer.yaml
+          test -f packaging/winget/yarkingulacti.muxdev.locale.en-US.yaml
+          VERSION="${{ steps.version.outputs.tag }}"
+          echo "Packaging templates present for ${VERSION}"
+          echo "Goreleaser publishes Homebrew and Scoop when tap/bucket repos exist."
+          echo "Submit packaging/winget manifests to microsoft/winget-pkgs for winget."

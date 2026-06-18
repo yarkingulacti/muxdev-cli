@@ -14,9 +14,10 @@ import (
 var ErrAborted = errors.New("aborted")
 
 type Options struct {
-	Cfg       *config.Config
-	Focus     []string
-	WorkDir   string
+	Cfg        *config.Config
+	Focus      []string
+	WorkDir    string
+	UpdateHint string
 }
 
 var (
@@ -33,7 +34,7 @@ var (
 func Run(opts Options) error {
 	serviceIDs := opts.Focus
 	if len(serviceIDs) == 0 {
-		picked, err := runPicker(opts.Cfg)
+		picked, err := runPicker(opts.Cfg, opts.UpdateHint)
 		if err != nil {
 			return err
 		}
@@ -46,16 +47,16 @@ func Run(opts Options) error {
 		serviceIDs = resolved
 	}
 
-	return runLogs(opts.Cfg, serviceIDs, opts.WorkDir)
+	return runLogs(opts.Cfg, serviceIDs, opts.WorkDir, opts.UpdateHint)
 }
 
-func runPicker(cfg *config.Config) ([]string, error) {
+func runPicker(cfg *config.Config, updateHint string) ([]string, error) {
 	ids, err := cfg.SortedServiceIDs()
 	if err != nil {
 		return nil, err
 	}
 
-	model := newPickerModel(cfg, ids)
+	model := newPickerModel(cfg, ids, updateHint)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	final, err := p.Run()
 	if err != nil {
@@ -72,25 +73,27 @@ func runPicker(cfg *config.Config) ([]string, error) {
 }
 
 type pickerModel struct {
-	cfg      *config.Config
-	ids      []string
-	cursor   int
-	selected map[string]bool
-	width    int
-	height   int
-	chosen   []string
-	aborted  bool
+	cfg        *config.Config
+	ids        []string
+	cursor     int
+	selected   map[string]bool
+	width      int
+	height     int
+	chosen     []string
+	aborted    bool
+	updateHint string
 }
 
-func newPickerModel(cfg *config.Config, ids []string) pickerModel {
+func newPickerModel(cfg *config.Config, ids []string, updateHint string) pickerModel {
 	selected := make(map[string]bool, len(ids))
 	for _, id := range ids {
 		selected[id] = true
 	}
 	return pickerModel{
-		cfg:      cfg,
-		ids:      ids,
-		selected: selected,
+		cfg:        cfg,
+		ids:        ids,
+		selected:   selected,
+		updateHint: updateHint,
 	}
 }
 
@@ -181,7 +184,11 @@ func (m pickerModel) View() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("↑/↓ move  space toggle  a all  enter start  q quit"))
+	help := "↑/↓ move  space toggle  a all  enter start  q quit"
+	if m.updateHint != "" {
+		help = m.updateHint + "  |  " + help
+	}
+	b.WriteString(helpStyle.Render(help))
 	return b.String()
 }
 

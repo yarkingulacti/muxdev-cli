@@ -37,9 +37,48 @@ Or run from the repo without installing:
 
 ## Install
 
+### curl (Linux / macOS / Git Bash)
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/yarkingulacti/muxdev-cli/main/scripts/install.sh | bash
 ```
+
+### Homebrew
+
+```bash
+brew tap yarkingulacti/tap
+brew install muxdev
+```
+
+### Scoop (Windows)
+
+```powershell
+scoop bucket add yarkingulacti https://github.com/yarkingulacti/scoop-bucket
+scoop install muxdev
+```
+
+### winget (Windows)
+
+```powershell
+winget install yarkingulacti.muxdev
+```
+
+### go install
+
+```bash
+go install github.com/yarkingulacti/muxdev-cli/cmd/muxdev@latest
+```
+
+## Update
+
+```bash
+muxdev update --check     # check only (exit 2 if update available)
+muxdev update             # self-update for direct installs
+muxdev version            # full build metadata
+muxdev version --short    # 0.1.0
+```
+
+Package manager installs should use their native upgrade commands (`brew upgrade`, `scoop update`, `winget upgrade`).
 
 ## Usage
 
@@ -60,7 +99,7 @@ muxdev --no-interactive
 muxdev --config ./muxdev.yaml --list
 ```
 
-## Project manifest (planned)
+## Project manifest
 
 ```yaml
 name: My App

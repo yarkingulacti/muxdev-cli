@@ -1,0 +1,32 @@
+PackageIdentifier: yarkingulacti.muxdev
+PackageVersion: VERSION
+DefaultLocale: en-US
+PackageLocale: en-US
+Publisher: yarkingulacti
+PackageName: muxdev
+License: MIT
+ShortDescription: Multiplexed dev stack runner
+Moniker: muxdev
+Tags:
+  - cli
+  - development
+  - devtools
+Installers:
+  - Architecture: x64
+    InstallerType: zip
+    InstallerUrl: https://github.com/yarkingulacti/muxdev-cli/releases/download/vVERSION/muxdev_VERSION_windows_amd64.zip
+    InstallerSha256: WINDOWS_AMD64_SHA256
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: muxdev.exe
+        PortableCommandAlias: muxdev
+  - Architecture: arm64
+    InstallerType: zip
+    InstallerUrl: https://github.com/yarkingulacti/muxdev-cli/releases/download/vVERSION/muxdev_VERSION_windows_arm64.zip
+    InstallerSha256: WINDOWS_ARM64_SHA256
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: muxdev.exe
+        PortableCommandAlias: muxdev
+ManifestType: merged
+ManifestVersion: 1.6.0

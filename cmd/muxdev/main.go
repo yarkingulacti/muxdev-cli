@@ -7,11 +7,15 @@ import (
 	"github.com/yarkingulacti/muxdev-cli/internal/cli"
 )
 
-var version = "0.1.0"
-
 func main() {
-	root := cli.NewRoot(cli.Options{Version: version})
+	root := cli.NewRoot()
 	if err := root.Execute(); err != nil {
+		if code := cli.ExitCode(err); code != 0 {
+			if code > 0 {
+				fmt.Fprintf(os.Stderr, "muxdev: %v\n", err)
+			}
+			os.Exit(code)
+		}
 		fmt.Fprintf(os.Stderr, "muxdev: %v\n", err)
 		os.Exit(1)
 	}

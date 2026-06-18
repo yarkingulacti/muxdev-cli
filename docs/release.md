@@ -14,16 +14,17 @@ This document defines how muxdev is versioned, shipped, and distributed across p
 
 | Piece | Status |
 |-------|--------|
-| Goreleaser config | Done (`.goreleaser.yaml`) |
+| Goreleaser config | Done (`.goreleaser.yaml`, brews + scoops) |
 | CI matrix (linux/macos/windows) | Done (`.github/workflows/ci.yml`) |
 | Release workflow on tag | Done (`.github/workflows/release.yml`) |
-| `install.sh` | Done (no checksum verify yet) |
-| Version in binary | Hardcoded fallback `0.1.0` in `cmd/muxdev/main.go` |
-| Git tags | None yet |
-| CHANGELOG | Missing |
-| Release Please | Missing |
-| Homebrew / Scoop / winget | Missing |
-| Built-in updater (`muxdev update`) | Missing |
+| Release Please | Done (`.github/workflows/release-please.yml`) |
+| `install.sh` | Done (checksum verify) |
+| Version in binary | Done (`internal/version`, Goreleaser ldflags) |
+| Built-in updater | Done (`muxdev update`, `muxdev version`) |
+| Package manifest templates | Done (`packaging/`) |
+| Git tags / GitHub Release | Pending first Release Please merge |
+| External tap/bucket repos | Pending (`homebrew-tap`, `scoop-bucket`) |
+| winget-pkgs PR | Pending (templates in `packaging/winget/`) |
 
 ## Update mechanism
 

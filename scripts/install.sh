@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Install muxdev from GitHub releases.
+# Install or update muxdev from GitHub releases.
 set -euo pipefail
 
 REPO="yarkingulacti/muxdev-cli"
 INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
 VERSION="${VERSION:-latest}"
+CHECK_ONLY="${CHECK_ONLY:-0}"
 
 err() {
   printf 'install: %s\n' "$1" >&2
@@ -38,17 +39,43 @@ resolve_version() {
     return
   fi
   need_cmd curl
-  curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
-    | grep '"tag_name"' \
-    | head -n1 \
-    | cut -d'"' -f4
+  curl -fsSL -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/${REPO}/releases/latest" \
+    | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' \
+    | head -n1
+}
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    err "sha256sum or shasum required for checksum verification"
+  fi
+}
+
+verify_checksum() {
+  local archive="$1"
+  local asset="$2"
+  local checksums="$3"
+  local expected actual
+
+  expected="$(printf '%s\n' "$checksums" | awk -v asset="$asset" '$NF == asset { print $1; exit }')"
+  if [[ -z "$expected" ]]; then
+    err "checksum for $asset not found"
+  fi
+  actual="$(sha256_file "$archive")"
+  if [[ "$actual" != "$expected" ]]; then
+    err "checksum mismatch for $asset"
+  fi
 }
 
 main() {
   need_cmd tar
   need_cmd curl
 
-  local os arch tag asset url tmpdir binary
+  local os arch tag asset url tmpdir binary checksums
   os="$(detect_os)"
   arch="$(detect_arch)"
   tag="$(resolve_version)"
@@ -67,8 +94,16 @@ main() {
   tmpdir="$(mktemp -d)"
   trap 'rm -rf "$tmpdir"' EXIT
 
+  checksums="$(curl -fsSL "https://github.com/${REPO}/releases/download/${tag}/checksums.txt")"
+
+  if [[ "$CHECK_ONLY" == "1" ]]; then
+    printf 'Latest release: %s (%s)\n' "$tag" "$asset"
+    exit 0
+  fi
+
   printf 'Downloading %s\n' "$url"
   curl -fsSL "$url" -o "${tmpdir}/archive"
+  verify_checksum "${tmpdir}/archive" "$asset" "$checksums"
 
   if [[ "$os" == "windows" ]]; then
     need_cmd unzip

@@ -1,0 +1,9 @@
+PackageIdentifier: yarkingulacti.muxdev
+PackageVersion: VERSION
+PackageLocale: en-US
+Publisher: yarkingulacti
+PackageName: muxdev
+License: MIT
+ShortDescription: Multiplexed dev stack runner
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
