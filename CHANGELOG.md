@@ -5,6 +5,20 @@ All notable changes to **muxdev** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0](https://github.com/yarkingulacti/muxdev-cli/compare/v1.1.0...v1.2.0) (2026-06-19)
+
+
+### Added
+
+* add port conflict handling and nexus release pipeline ([bd97d36](https://github.com/yarkingulacti/muxdev-cli/commit/bd97d36b7b125f3d9930ef4a9ff4eae65b46a564))
+
+
+### Fixed
+
+* **ci:** add portkill build tag and skip brew without tap token ([8f1694d](https://github.com/yarkingulacti/muxdev-cli/commit/8f1694d4c47b04514f0532ed2850312878f73cac))
+* **ci:** resolve goreleaser path in nexus publish workflow ([b44758f](https://github.com/yarkingulacti/muxdev-cli/commit/b44758fc9b20422ae0a313b1ebe32bb130792b3a))
+* **release:** use changelog.md for github release notes ([c839c96](https://github.com/yarkingulacti/muxdev-cli/commit/c839c966ed3b8eb1f1abc872605b8d21819698b4))
+
 ## [1.1.0](https://github.com/yarkingulacti/muxdev-cli/compare/v1.0.0...v1.1.0) (2026-06-18)
 
 ### Added
