@@ -11,10 +11,17 @@ func staticPages() []Page {
 			Body: `muxdev orchestrates local services defined in muxdev.yaml — pick what to run,
 multiplex logs, resolve port conflicts, and review past sessions.
 
+Install (public GitHub Releases):
+  curl -fsSL https://raw.githubusercontent.com/yarkingulacti/muxdev-cli/master/scripts/install.sh | bash
+
 Quick start:
   1. cd your-project
   2. muxdev init
   3. muxdev
+
+Update:
+  muxdev update --check
+  muxdev update --yes
 
 No config yet? Starting muxdev in a new repo offers the init wizard automatically.
 

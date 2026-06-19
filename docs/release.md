@@ -671,7 +671,7 @@ No manual version edits. After features land on `dev` and are promoted to `maste
 
 ## Open decisions (deferred)
 
-- **Repository visibility** — repo is currently private; make public (or publish release artifacts via public channel) before `install.sh` / `muxdev update` work without GitHub auth
+- ~~**Repository visibility**~~ — **done:** repo is public; `install.sh` and `muxdev update` use GitHub Releases without auth
 - **TAP_GITHUB_TOKEN** — add repo secret with `repo` scope so Goreleaser can push Homebrew/Scoop manifests on release
 - **SBOM / provenance** — GitHub artifact attestations (optional)
 - **npm wrapper** — not planned; Go binary is the distribution unit

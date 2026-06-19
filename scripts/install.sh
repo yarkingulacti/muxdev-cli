@@ -3,6 +3,7 @@
 set -euo pipefail
 
 REPO="yarkingulacti/muxdev-cli"
+GITHUB_API="${GITHUB_API:-https://api.github.com}"
 INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
 VERSION="${VERSION:-latest}"
 CHECK_ONLY="${CHECK_ONLY:-0}"
@@ -39,8 +40,12 @@ resolve_version() {
     return
   fi
   need_cmd curl
-  curl -fsSL -H "Accept: application/vnd.github+json" \
-    "https://api.github.com/repos/${REPO}/releases/latest" \
+  local api_url="${GITHUB_API}/repos/${REPO}/releases/latest"
+  local curl_args=(-fsSL -H "Accept: application/vnd.github+json")
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    curl_args+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+  fi
+  curl "${curl_args[@]}" "$api_url" \
     | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' \
     | head -n1
 }
@@ -95,7 +100,7 @@ main() {
   trap 'rm -rf "${tmpdir:-}"' EXIT
 
   checksums="$(curl -fsSL -H "Accept: application/vnd.github+json" \
-    "https://api.github.com/repos/${REPO}/releases/tags/${tag}" \
+    "${GITHUB_API}/repos/${REPO}/releases/tags/${tag}" \
     | sed -n 's/.*"browser_download_url":[[:space:]]*"\([^"]*checksums.txt\)".*/\1/p' | head -n1)"
   if [ -z "$checksums" ]; then
     checksums="https://github.com/${REPO}/releases/download/${tag}/checksums.txt"

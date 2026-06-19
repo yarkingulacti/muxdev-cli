@@ -12,12 +12,12 @@
 Service picker · multiplexed logs · port conflict resolution · session history · self-update — one CLI, zero bash spaghetti in your app repo.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yarkingulacti/muxdev-cli/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/yarkingulacti/muxdev-cli/master/scripts/install.sh | bash
 ```
 
 ```text
 ┌─ muxdev ────────────────────────────────────────────────────────────────┐
-│  My App · Local development stack                          v1.3.1       │
+│  My App · Local development stack                          v1.3.2       │
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │  ◉ backend   Backend API          :5005                         │    │
 │  │  ◉ ui        Web UI               :3131                         │    │
@@ -50,7 +50,7 @@ Monorepo dev scripts grow into large, project-coupled bash files: service picker
 - [CLI reference](#-cli-reference)
 - [Project manifest](#-project-manifest)
 - [Self-update](#-self-update)
-- [Nexus / private releases](#-nexus--private-releases)
+- [Self-hosted updates (Nexus)](#-self-hosted-updates-nexus)
 - [Documentation](#-documentation)
 - [License](#-license)
 
@@ -65,7 +65,7 @@ Monorepo dev scripts grow into large, project-coupled bash files: service picker
 | 🔌 **Port-aware** | Detects conflicts, resolves process trees, and binds ports via layered env resolution. |
 | 📜 **Session logs** | Persists runtime output to platform paths; browse with `muxdev logs`. |
 | 📖 **Built-in help** | Interactive wiki (`muxdev help`, `-h` per command) generated from CLI docs. |
-| 🔄 **Self-update** | `muxdev update` via GitHub Releases or a Nexus manifest (`MUXDEV_UPDATE_URL`). |
+| 🔄 **Self-update** | `muxdev update` from [GitHub Releases](https://github.com/yarkingulacti/muxdev-cli/releases) (default) or a Nexus manifest |
 | 🧰 **Cross-platform** | Linux, macOS, Windows — amd64 & arm64; Homebrew, Scoop, winget, curl, `go install`. |
 
 ## ⚡ 60-second tour
@@ -99,7 +99,7 @@ That's the core loop: point `muxdev` at a project with `muxdev.yaml`, pick what 
 ### curl (Linux / macOS / Git Bash)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yarkingulacti/muxdev-cli/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/yarkingulacti/muxdev-cli/master/scripts/install.sh | bash
 ```
 
 ### Homebrew
@@ -217,18 +217,25 @@ See [testdata/muxdev.yaml](testdata/muxdev.yaml) for a minimal project config yo
 
 ## 🔄 Self-update
 
+By default, `muxdev update` uses the public GitHub Releases API — no extra config needed:
+
 ```bash
 muxdev update --check     # check only (exit 2 if update available)
-muxdev update             # self-update for direct installs
-muxdev version            # full build metadata
-muxdev version --short    # e.g. 1.3.1
+muxdev update --yes       # download, verify checksum, replace binary
+muxdev version --short    # e.g. 1.3.2
+```
+
+Re-install from the latest release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yarkingulacti/muxdev-cli/master/scripts/install.sh | bash
 ```
 
 Package manager installs should use their native upgrade commands (`brew upgrade`, `scoop update`, `winget upgrade`).
 
-## 🛰️ Nexus / private releases
+## 🛰️ Self-hosted updates (Nexus)
 
-Point the updater at a manifest URL (e.g. Nexus raw repo):
+Optional: point the updater at a Nexus (or other static) manifest instead of GitHub:
 
 ```bash
 export MUXDEV_UPDATE_URL="https://apps.developeryarkin.com/repository/muxdev-releases/stable/latest.json"
@@ -247,13 +254,13 @@ Publish release artifacts:
 
 ```bash
 # requires NEXUS_AUTH in .env or environment
-./scripts/release-nexus.sh v1.3.1
+./scripts/release-nexus.sh v1.3.2
 ./scripts/verify-nexus.sh
 ./scripts/test-nexus.sh          # offline + local fixture e2e
 ./scripts/test-nexus.sh --live   # verify remote latest.json
 ```
 
-**GitHub Releases:** pushing a `v*` tag runs `.github/workflows/release.yml` (Goreleaser + optional Nexus upload + verify). Set repository secrets `NEXUS_URL`, `NEXUS_AUTH`, and optionally `NEXUS_REPO`.
+**CI release flow:** push to `master` → Release Please → Goreleaser → GitHub Release → Nexus upload (secrets: `NEXUS_URL`, `NEXUS_AUTH`, optional `NEXUS_REPO`, `TAP_GITHUB_TOKEN` for Homebrew/Scoop).
 
 ## 📚 Documentation
 
