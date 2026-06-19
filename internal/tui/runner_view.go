@@ -37,10 +37,11 @@ type runDoneMsg struct {
 }
 
 type runnerStartedMsg struct {
-	cancel  context.CancelFunc
-	logCh   chan logMsg
-	doneCh  chan runDoneMsg
-	session *logs.Writer
+	cancel   context.CancelFunc
+	logCh    chan logMsg
+	doneCh   chan runDoneMsg
+	session  *logs.Writer
+	shutdown *runner.ShutdownRequest
 }
 
 type portKillMsg struct {
@@ -104,6 +105,7 @@ type runnerModel struct {
 	attachLogCh  chan logMsg
 	attachDoneCh chan attachDoneMsg
 	shuttingDown bool
+	shutdown     *runner.ShutdownRequest
 	followTail   bool
 	session      *logs.Writer
 }
@@ -144,6 +146,7 @@ func (m runnerModel) startRunner() tea.Cmd {
 		ctx, cancel := context.WithCancel(context.Background())
 		logCh := make(chan logMsg, 128)
 		doneCh := make(chan runDoneMsg, 1)
+		shutdown := &runner.ShutdownRequest{}
 
 		session, err := logs.StartSession(m.workDir, m.configPath, m.serviceIDs, string(m.runtime))
 		if err != nil {
@@ -161,16 +164,18 @@ func (m runnerModel) startRunner() tea.Cmd {
 					}
 				},
 				CancelFunc: cancel,
+				Shutdown:   shutdown,
 			})
 			close(logCh)
 			doneCh <- runDoneMsg{err: err}
 		}()
 
 		return runnerStartedMsg{
-			cancel:  cancel,
-			logCh:   logCh,
-			doneCh:  doneCh,
-			session: session,
+			cancel:   cancel,
+			logCh:    logCh,
+			doneCh:   doneCh,
+			session:  session,
+			shutdown: shutdown,
 		}
 	}
 }
@@ -181,6 +186,7 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cancel = msg.cancel
 		m.logCh = msg.logCh
 		m.doneCh = msg.doneCh
+		m.shutdown = msg.shutdown
 		if m.session != nil {
 			_ = m.session.Finish(nil)
 		}
@@ -291,7 +297,13 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		if m.rerunMenu {
 			switch msg.String() {
-			case "ctrl+c", "q":
+			case "ctrl+c", "ctrl+q":
+				if m.done {
+					return m, tea.Quit
+				}
+				m.rerunMenu = false
+				return m, nil
+			case "q":
 				if m.done {
 					return m, tea.Quit
 				}
@@ -369,21 +381,10 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
-		case "ctrl+c", "q":
-			if m.awaitingKill {
-				m.done = true
-			}
-			if m.attachCancel != nil {
-				m.attachCancel()
-			}
-			if m.cancel != nil {
-				m.shuttingDown = true
-				m.cancel()
-			}
-			if m.doneCh == nil {
-				return m, tea.Quit
-			}
-			return m, nil
+		case "q":
+			return m.requestShutdown(true)
+		case "ctrl+q", "ctrl+c":
+			return m.requestShutdown(false)
 		case "a", "A":
 			if m.attachPending || m.killPending || m.portConflict == nil || !m.portConflict.Fatal {
 				return m, nil
@@ -564,9 +565,9 @@ func (m runnerModel) renderFooter() string {
 		return helpStyle.Render(base)
 	}
 	if m.conflictNote != "" {
-		hint := "a attach  k kill & restart  n ignore  q quit"
+		hint := "a attach  k kill & restart  n ignore  ctrl+q quit  q force quit"
 		if m.portConflict != nil && !m.portConflict.Fatal {
-			hint = "k free port  q quit"
+			hint = "k free port  ctrl+q quit  q force quit"
 		}
 		if m.killPending {
 			hint = "freeing port..."
@@ -585,7 +586,7 @@ func (m runnerModel) renderFooter() string {
 		base = logScrollHelpHistory
 	}
 	if m.filterLabel != "" {
-		base = "pgup/pgdn line  ctrl+u/d page  f filter (" + m.filterLabel + ")  q quit"
+		base = "pgup/pgdn line  ctrl+u/d page  f filter (" + m.filterLabel + ")  ctrl+q quit  q force quit"
 	}
 	if m.updateHint != "" {
 		base = m.updateHint + "  |  " + base
@@ -800,6 +801,41 @@ func (m runnerModel) renderRerunMenu() string {
 		width = 20
 	}
 	return cardStyle.Width(width).Render(b.String())
+}
+
+func (m *runnerModel) requestShutdown(forceful bool) (runnerModel, tea.Cmd) {
+	if m.awaitingKill {
+		m.done = true
+	}
+	if m.attachCancel != nil {
+		m.attachCancel()
+	}
+	if m.shutdown != nil {
+		m.shutdown.Forceful = forceful
+	}
+	if m.cancel != nil {
+		if forceful {
+			m.cancel()
+		} else {
+			m.shuttingDown = true
+			m.cancel()
+		}
+	}
+	if forceful {
+		if m.session != nil {
+			_ = m.session.Finish(nil)
+			m.session = nil
+		}
+		return *m, tea.Quit
+	}
+	if m.doneCh == nil {
+		return *m, tea.Quit
+	}
+	return *m, nil
+}
+
+func shouldQuitAfterShutdown(forceful bool, doneCh chan runDoneMsg) bool {
+	return forceful || doneCh == nil
 }
 
 func serviceLogLabel(cfg *config.Config, id string) string {

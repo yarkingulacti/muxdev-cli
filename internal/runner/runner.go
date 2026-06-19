@@ -16,12 +16,18 @@ import (
 
 type LineHandler func(label string, stderr bool, text string)
 
+// ShutdownRequest is set by the TUI before canceling the runner context.
+type ShutdownRequest struct {
+	Forceful bool
+}
+
 type Context struct {
 	WorkDir    string
 	Stdout     io.Writer
 	Stderr     io.Writer
 	OnLine     LineHandler
 	CancelFunc context.CancelFunc
+	Shutdown   *ShutdownRequest
 }
 
 type Runner struct {
@@ -61,7 +67,7 @@ func (r *Runner) Run(ctx Context) error {
 
 func (r *Runner) runSync(rootCtx context.Context, ctx Context, order []string, cancel context.CancelFunc) error {
 	handles := make([]*serviceHandle, 0, len(order))
-	defer r.stopAll(handles)
+	defer r.stopAll(handles, ctx.Shutdown)
 
 	for _, id := range order {
 		if rootCtx.Err() != nil {
@@ -75,7 +81,7 @@ func (r *Runner) runSync(rootCtx context.Context, ctx Context, order []string, c
 		handles = append(handles, handle)
 	}
 
-	return r.waitHandles(rootCtx, cancel, handles)
+	return r.waitHandles(rootCtx, cancel, handles, ctx.Shutdown)
 }
 
 func (r *Runner) runAsync(rootCtx context.Context, ctx Context, order []string, cancel context.CancelFunc) error {
@@ -105,7 +111,7 @@ func (r *Runner) runAsync(rootCtx context.Context, ctx Context, order []string, 
 	}
 	wg.Wait()
 
-	defer r.stopAll(handles)
+	defer r.stopAll(handles, ctx.Shutdown)
 
 	if launchErr != nil {
 		return launchErr
@@ -114,16 +120,16 @@ func (r *Runner) runAsync(rootCtx context.Context, ctx Context, order []string, 
 	mu.Lock()
 	h := append([]*serviceHandle(nil), handles...)
 	mu.Unlock()
-	return r.waitHandles(rootCtx, cancel, h)
+	return r.waitHandles(rootCtx, cancel, h, ctx.Shutdown)
 }
 
-func (r *Runner) stopAll(handles []*serviceHandle) {
+func (r *Runner) stopAll(handles []*serviceHandle, shutdown *ShutdownRequest) {
 	for _, handle := range handles {
-		handle.stop()
+		handle.stop(shutdown)
 	}
 }
 
-func (r *Runner) waitHandles(rootCtx context.Context, cancel context.CancelFunc, handles []*serviceHandle) error {
+func (r *Runner) waitHandles(rootCtx context.Context, cancel context.CancelFunc, handles []*serviceHandle, shutdown *ShutdownRequest) error {
 	if len(handles) == 0 {
 		return rootCtx.Err()
 	}
@@ -135,7 +141,7 @@ func (r *Runner) waitHandles(rootCtx context.Context, cancel context.CancelFunc,
 		wg.Add(1)
 		go func(h *serviceHandle) {
 			defer wg.Done()
-			if err := h.wait(rootCtx); err != nil {
+			if err := h.wait(rootCtx, shutdown); err != nil {
 				errCh <- err
 				cancel()
 			}
@@ -151,7 +157,7 @@ func (r *Runner) waitHandles(rootCtx context.Context, cancel context.CancelFunc,
 	select {
 	case <-rootCtx.Done():
 		for _, handle := range handles {
-			handle.stop()
+			handle.stop(shutdown)
 		}
 		<-done
 	case <-done:
@@ -213,15 +219,19 @@ func (r *Runner) launchService(ctx context.Context, runCtx Context, serviceID st
 	return handle, nil
 }
 
-func (h *serviceHandle) stop() {
+func (h *serviceHandle) stop(shutdown *ShutdownRequest) {
 	if h.stopped {
 		return
 	}
 	h.stopped = true
-	platform.StopProcessGroup(h.cmd)
+	if shutdown != nil && shutdown.Forceful {
+		platform.KillProcessGroup(h.cmd)
+		return
+	}
+	platform.TerminateProcessGroup(h.cmd)
 }
 
-func (h *serviceHandle) wait(ctx context.Context) error {
+func (h *serviceHandle) wait(ctx context.Context, shutdown *ShutdownRequest) error {
 	if h.cmd == nil {
 		return nil
 	}
@@ -233,11 +243,13 @@ func (h *serviceHandle) wait(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		h.stop()
+		h.stop(shutdown)
 		select {
 		case <-waitDone:
 		case <-time.After(5 * time.Second):
-			platform.KillProcessGroup(h.cmd)
+			if shutdown == nil || !shutdown.Forceful {
+				platform.KillProcessGroup(h.cmd)
+			}
 			<-waitDone
 		}
 		h.streamWG.Wait()
