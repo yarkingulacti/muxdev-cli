@@ -3,10 +3,14 @@ package platform
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 func TestSessionsDirUsesXDGStateHome(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("XDG_STATE_HOME session path applies on Linux")
+	}
 	base := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", base)
 

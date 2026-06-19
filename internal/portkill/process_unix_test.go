@@ -4,6 +4,7 @@ package portkill
 
 import (
 	"os"
+	"runtime"
 	"testing"
 )
 
@@ -15,6 +16,9 @@ func TestFilterEmpty(t *testing.T) {
 }
 
 func TestReadCmdlineJoinsArgs(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("/proc cmdline is Linux-only")
+	}
 	cmd, err := readCmdline(os.Getpid())
 	if err != nil {
 		t.Fatalf("readCmdline: %v", err)

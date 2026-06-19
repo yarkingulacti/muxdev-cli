@@ -13,8 +13,8 @@ import (
 func newHelpCmd(root *cobra.Command) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "help [topic]",
-		Short: "Interactive local guide and command reference",
-		Long:  "Browse muxdev documentation in the terminal. Topics are generated from registered commands and stay in sync with the CLI.",
+		Short: "Interactive help — browse topics, search, and run examples",
+		Long:  "Open the muxdev help center in your terminal: categorized topics, search, rich formatting, and safe example commands (press t).",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runHelp(root, cmd.OutOrStdout(), strings.Join(args, " "))
 		},

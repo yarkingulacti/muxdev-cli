@@ -37,3 +37,12 @@ func renderLogo(width int) string {
 	maxW := min(width-2, 72)
 	return lipgloss.NewStyle().Width(maxW).Align(lipgloss.Center).Render(strings.TrimRight(art.String(), "\n"))
 }
+
+// renderLogoCompact is a short banner for help and secondary screens.
+func renderLogoCompact(width int) string {
+	banner := logoStyle.Render("MUXDEV") + taglineStyle.Render("  ·  help & reference")
+	sub := taglineStyle.Render("Multiplexed dev stack runner — pick a topic below")
+	content := banner + "\n" + sub
+	maxW := min(width-2, 72)
+	return lipgloss.NewStyle().Width(maxW).Render(content)
+}

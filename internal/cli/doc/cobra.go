@@ -12,6 +12,7 @@ type Page struct {
 	ID         string
 	Category   string
 	Title      string
+	Summary    string // one-line browse blurb
 	Body       string
 	TryCommand string
 }
@@ -39,6 +40,7 @@ func pagesFromCommand(cmd *cobra.Command, prefix string) []Page {
 			ID:         slug(namePath),
 			Category:   categoryFor(cmd),
 			Title:      "muxdev " + namePath,
+			Summary:    strings.TrimSpace(cmd.Short),
 			Body:       renderCommandBody(cmd),
 			TryCommand: tryCommandFor(cmd, namePath),
 		})

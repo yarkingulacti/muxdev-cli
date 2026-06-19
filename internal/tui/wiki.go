@@ -191,11 +191,11 @@ func (m *wikiModel) layoutViewports() {
 	if m.width == 0 || m.height == 0 {
 		return
 	}
-	header := 5
+	header := 6
 	footer := 2
 	tryH := 0
 	if m.phase == wikiPhaseRead && m.tryOutput != "" {
-		tryH = 8
+		tryH = 10
 	}
 	contentH := m.height - header - footer - tryH
 	if contentH < 4 {
@@ -215,15 +215,11 @@ func (m *wikiModel) layoutViewports() {
 	}
 	if m.phase == wikiPhaseRead {
 		if page, ok := m.currentReadPage(); ok {
-			m.viewport.SetContent(renderWikiBody(page.Title, page.Body))
+			m.viewport.SetContent(renderRichDoc(page.Body))
 			m.viewport.GotoTop()
 		}
 		if m.tryOutput != "" {
-			label := "Try output"
-			if m.tryErr != nil {
-				label = "Try output (error)"
-			}
-			m.tryView.SetContent(renderWikiBody(label, m.tryOutput))
+			m.tryView.SetContent(wikiCodeStyle.Render(m.tryOutput))
 			m.tryView.GotoBottom()
 		}
 	}
@@ -249,7 +245,7 @@ func (m wikiModel) currentReadPage() (doc.Page, bool) {
 
 func (m wikiModel) View() string {
 	if m.width == 0 {
-		return "Loading muxdev guide…"
+		return mutedStyle.Render("Loading muxdev help…")
 	}
 
 	switch m.phase {
@@ -263,48 +259,82 @@ func (m wikiModel) View() string {
 }
 
 func (m wikiModel) renderBrowse() string {
-	header := renderWikiHeader(m.width, "Local guide — pick a topic")
 	var b strings.Builder
-	b.WriteString(header)
+
+	b.WriteString(renderLogoCompact(m.width))
+	b.WriteString("\n\n")
+
+	stats := mutedStyle.Render(fmt.Sprintf("%d topics · %d categories", len(m.filtered), len(doc.Categories(m.filtered))))
+	intro := cardStyle.Width(min(m.width-2, 72)).Render(
+		wikiAccentStyle.Render("Help center") + "\n" +
+			mutedStyle.Render("Browse topics, press / to search, enter to read.") + "\n" +
+			stats,
+	)
+	b.WriteString(intro)
 	b.WriteString("\n")
 
 	lastCat := ""
+	catCount := 0
 	for i, page := range m.filtered {
 		if page.Category != lastCat {
+			if lastCat != "" {
+				b.WriteString("\n")
+			}
 			lastCat = page.Category
-			b.WriteString("\n")
-			b.WriteString(titleStyle.Render(page.Category))
+			catCount = 0
+			for _, p := range m.filtered {
+				if p.Category == lastCat {
+					catCount++
+				}
+			}
+			b.WriteString(renderWikiCategoryHeader(page.Category, catCount))
 			b.WriteString("\n")
 		}
-		marker := "  "
-		line := page.Title
-		if i == m.cursor {
-			marker = cursorStyle.Render("› ")
-			line = selectedStyle.Render(line)
-		}
-		hint := mutedStyle.Render("  " + page.ID)
-		b.WriteString(marker + line + hint + "\n")
+		b.WriteString(renderWikiTopicRow(i == m.cursor, page))
+		b.WriteString("\n")
 	}
 
 	if len(m.filtered) == 0 {
-		b.WriteString(mutedStyle.Render("\nNo topics match.\n"))
+		b.WriteString(mutedStyle.Render("\nNo topics match your search.\n"))
 	}
 
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("↑/↓ move  enter open  / search  q quit"))
+	b.WriteString(helpStyle.Render("↑/↓ move   enter open   / search   q quit"))
 	return b.String()
 }
 
 func (m wikiModel) renderSearch() string {
-	header := renderWikiHeader(m.width, "Search topics")
 	var b strings.Builder
-	b.WriteString(header)
+	b.WriteString(renderWikiHeader(m.width, "Search", "Type to filter topics by name, id, or keyword"))
 	b.WriteString("\n")
-	b.WriteString(m.search.View())
+	searchBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("238")).
+		Padding(0, 1).
+		Width(min(m.width-2, 72)).
+		Render(m.search.View())
+	b.WriteString(searchBox)
 	b.WriteString("\n\n")
-	b.WriteString(mutedStyle.Render(fmt.Sprintf("%d topics", len(m.filtered))))
-	b.WriteString("\n\n")
-	b.WriteString(helpStyle.Render("enter apply  esc cancel"))
+
+	if len(m.filtered) == 0 {
+		b.WriteString(mutedStyle.Render("No matches.\n"))
+	} else {
+		limit := min(len(m.filtered), 8)
+		for i := 0; i < limit; i++ {
+			page := m.filtered[i]
+			b.WriteString(wikiSectionStyle.Render(page.Category))
+			b.WriteString("  ")
+			b.WriteString(selectedStyle.Render(page.Title))
+			b.WriteString("\n")
+			b.WriteString(mutedStyle.Render("  " + pageSummary(page)))
+			b.WriteString("\n\n")
+		}
+		if len(m.filtered) > limit {
+			b.WriteString(mutedStyle.Render(fmt.Sprintf("… and %d more — press enter to browse results\n", len(m.filtered)-limit)))
+		}
+	}
+
+	b.WriteString(helpStyle.Render("enter apply filter   esc cancel"))
 	return b.String()
 }
 
@@ -313,44 +343,43 @@ func (m wikiModel) renderRead() string {
 	if !ok {
 		return ""
 	}
-	header := renderWikiHeader(m.width, page.Category+" · "+page.Title)
+
+	pos := fmt.Sprintf("%d / %d", m.readIndex+1, len(m.filtered))
+	header := renderWikiReadHeader(m.width, page, pos)
 	var parts []string
 	parts = append(parts, header, m.viewport.View())
 	if m.tryOutput != "" {
-		parts = append(parts, m.tryView.View())
+		tryLabel := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("214")).Render("Example output")
+		parts = append(parts, tryLabel, m.tryView.View())
 	}
-	footer := helpStyle.Render("t try  n/p next/prev  pgup/pgdn scroll  esc back  q quit")
+
+	footer := helpStyle.Render("esc back   n/p next topic   pgup/pgdn scroll   q quit")
 	if page.TryCommand != "" {
-		footer = helpStyle.Render("t → "+page.TryCommand+"  n/p  scroll  esc  q")
+		footer = helpStyle.Render("t run example   esc back   n/p topic   scroll   q quit")
+		if m.tryPending {
+			footer = mutedStyle.Render("Running example…")
+		}
 	}
 	parts = append(parts, footer)
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
-func renderWikiHeader(width int, status string) string {
-	title := titleStyle.Render("muxdev wiki")
-	sub := mutedStyle.Render(status)
-	content := fmt.Sprintf("%s\n%s", title, sub)
+func renderWikiHeader(width int, title, subtitle string) string {
+	content := wikiAccentStyle.Render(title) + "\n" + mutedStyle.Render(subtitle)
 	return cardStyle.Width(min(width-2, 72)).Render(content)
 }
 
-func renderWikiBody(title, body string) string {
-	var b strings.Builder
-	b.WriteString(titleStyle.Render(title))
-	b.WriteString("\n\n")
-	for _, line := range strings.Split(body, "\n") {
-		trim := strings.TrimSpace(line)
-		switch {
-		case strings.HasPrefix(trim, "  --"):
-			b.WriteString(mutedStyle.Render(line))
-		case strings.HasSuffix(trim, ":") && !strings.HasPrefix(line, " "):
-			b.WriteString(subtitleStyle.Render(line))
-		default:
-			b.WriteString(line)
-		}
-		b.WriteString("\n")
+func renderWikiReadHeader(width int, page doc.Page, position string) string {
+	breadcrumb := wikiSectionStyle.Render(page.Category) +
+		mutedStyle.Render(" › ") +
+		titleStyle.Render(page.Title)
+	summary := mutedStyle.Render(pageSummary(page))
+	meta := mutedStyle.Render(position)
+	if page.TryCommand != "" {
+		meta += mutedStyle.Render("   ·   t → ") + wikiAccentStyle.Render(page.TryCommand)
 	}
-	return b.String()
+	content := breadcrumb + "\n" + summary + "\n" + meta
+	return cardStyle.Width(min(width-2, 72)).Render(content)
 }
 
 func wikiTryCmd(line string) tea.Cmd {
