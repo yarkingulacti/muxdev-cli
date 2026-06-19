@@ -63,9 +63,9 @@ jobs:
       - name: Prepare release notes
         run: |
           chmod +x scripts/release-notes.sh
-          ./scripts/release-notes.sh "${{ needs.release-please.outputs.tag_name }}" > release-notes.md
+          ./scripts/release-notes.sh "${{ needs.release-please.outputs.tag_name }}" > /tmp/release-notes.md
           echo "Release notes:" >> "$GITHUB_STEP_SUMMARY"
-          cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
+          cat /tmp/release-notes.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install Goreleaser
         run: go install github.com/goreleaser/goreleaser/v2@latest
@@ -75,7 +75,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
         run: |
-          ARGS=(release --clean --release-notes=release-notes.md)
+          ARGS=(release --clean --release-notes=/tmp/release-notes.md)
           if [ -z "${TAP_GITHUB_TOKEN:-}" ]; then
             echo "TAP_GITHUB_TOKEN not set — skipping homebrew/scoop publish"
             ARGS+=(--skip=homebrew --skip=scoop)

@@ -51,7 +51,7 @@ jobs:
       - name: Prepare release notes
         run: |
           chmod +x scripts/release-notes.sh
-          ./scripts/release-notes.sh "${{ github.event.inputs.tag }}" > release-notes.md
+          ./scripts/release-notes.sh "${{ github.event.inputs.tag }}" > /tmp/release-notes.md
 
       - name: Install Goreleaser
         run: go install github.com/goreleaser/goreleaser/v2@latest
@@ -61,7 +61,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
         run: |
-          ARGS=(release --clean --release-notes=release-notes.md)
+          ARGS=(release --clean --release-notes=/tmp/release-notes.md)
           if [ -z "${TAP_GITHUB_TOKEN:-}" ]; then
             ARGS+=(--skip=homebrew --skip=scoop)
           fi
