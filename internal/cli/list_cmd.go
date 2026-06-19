@@ -37,6 +37,10 @@ func runList(explicitConfig string) error {
 	if err != nil {
 		return err
 	}
-	printServiceList(cfg)
+	workDir, err := resolveWorkDir(cfgPath)
+	if err != nil {
+		return err
+	}
+	printServiceList(cfg, workDir)
 	return nil
 }

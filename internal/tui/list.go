@@ -10,7 +10,7 @@ import (
 	"github.com/yarkingulacti/muxdev-cli/internal/config"
 )
 
-func RenderServiceList(cfg *config.Config, width int) string {
+func RenderServiceList(cfg *config.Config, workDir string, width int) string {
 	ids, err := cfg.SortedServiceIDs()
 	if err != nil {
 		return errStyle.Render(fmt.Sprintf("Error: %v", err))
@@ -24,18 +24,19 @@ func RenderServiceList(cfg *config.Config, width int) string {
 	status := fmt.Sprintf("%d service%s", len(ids), pluralSuffix(len(ids)))
 	b.WriteString(renderHeader(cfg, width, status))
 	b.WriteString("\n\n")
-	b.WriteString(renderServiceTable(cfg, ids, width))
+	b.WriteString(renderServiceTable(cfg, ids, workDir, width))
 	return b.String()
 }
 
-func renderServiceTable(cfg *config.Config, ids []string, width int) string {
+func renderServiceTable(cfg *config.Config, ids []string, workDir string, width int) string {
 	rows := make([][]string, 0, len(ids))
 	for _, id := range ids {
 		svc := cfg.Services[id]
+		env := config.ListingEnv(workDir, cfg.EnvSource, svc.Env)
 		rows = append(rows, []string{
 			id,
 			svc.Label,
-			emptyDash(svc.Port),
+			emptyDash(config.ExpandEnv(svc.Port, env)),
 			emptyDash(strings.Join(svc.DependsOn, ", ")),
 			svc.Command,
 		})

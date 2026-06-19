@@ -155,7 +155,7 @@ func parseFocus(raw string) []string {
 	return out
 }
 
-func printServiceList(cfg *config.Config) {
+func printServiceList(cfg *config.Config, workDir string) {
 	if _, err := cfg.SortedServiceIDs(); err != nil {
 		fmt.Fprintf(os.Stderr, "muxdev: %v\n", err)
 		os.Exit(1)
@@ -166,6 +166,6 @@ func printServiceList(cfg *config.Config) {
 		width = w
 	}
 
-	fmt.Println(tui.RenderServiceList(cfg, width))
+	fmt.Println(tui.RenderServiceList(cfg, workDir, width))
 }
 
