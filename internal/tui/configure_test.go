@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"path/filepath"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -198,5 +199,55 @@ func TestApplyPartialField(t *testing.T) {
 	}
 	if m.services["ui"].Command != "npm run dev" {
 		t.Fatalf("Command changed unexpectedly: %q", m.services["ui"].Command)
+	}
+}
+
+func TestNewConfigureModelPrefillsProjectName(t *testing.T) {
+	m := newConfigureModel(ConfigureOptions{Init: true, WorkDir: "/home/user/my-cool-app"})
+	if m.name != "My Cool App" {
+		t.Fatalf("name = %q, want My Cool App", m.name)
+	}
+}
+
+func TestNewConfigureModelFromRunStartsAtSetupPrompt(t *testing.T) {
+	m := newConfigureModel(ConfigureOptions{Init: true, FromRun: true})
+	if m.phase != phaseCfgSetupPrompt {
+		t.Fatalf("phase = %v, want setup prompt", m.phase)
+	}
+}
+
+func TestSaveAndQuitFromRunExitsImmediately(t *testing.T) {
+	m := newConfigureModel(ConfigureOptions{Init: true, FromRun: true})
+	m.name = "Demo"
+	m.services = map[string]config.Service{
+		"app": {Label: "App", Command: "true"},
+	}
+	dir := t.TempDir()
+	m.outputPath = filepath.Join(dir, "muxdev.yaml")
+	m.workDir = dir
+
+	_, cmd := m.saveAndQuit()
+	if cmd == nil {
+		t.Fatal("expected quit command")
+	}
+	if !m.done {
+		t.Fatal("expected done=true")
+	}
+	if m.phase == phaseCfgDone {
+		t.Fatal("fromRun should skip done screen")
+	}
+	if !config.Exists(m.outputPath) {
+		t.Fatal("expected config file to be saved")
+	}
+}
+
+func TestBeginProjectSetupPrefillsName(t *testing.T) {
+	m := newConfigureModel(ConfigureOptions{Init: true, WorkDir: "/tmp/demo-app"})
+	cmd := m.beginProjectSetup()
+	if cmd == nil {
+		t.Fatal("expected input focus command")
+	}
+	if m.input.Value() != "Demo App" {
+		t.Fatalf("input value = %q, want Demo App", m.input.Value())
 	}
 }

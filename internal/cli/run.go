@@ -19,17 +19,17 @@ import (
 )
 
 func run(opts Options, focus string) error {
-	cfgPath, err := resolveConfigPath(opts.ConfigPath)
+	cfgPath, err := resolveRunConfigPath(opts.ConfigPath)
 	if err != nil {
 		return err
 	}
 
 	if !config.Exists(cfgPath) {
-		if opts.ConfigPath == "" {
-			return fmt.Errorf("%s not found (run `muxdev init` or pass --config)", cfgPath)
-		}
 		interactive := !opts.NoInteractive && isTerminal(os.Stdout)
 		if !interactive {
+			if opts.ConfigPath == "" {
+				return fmt.Errorf("%s not found (run `muxdev init` or pass --config)", cfgPath)
+			}
 			return fmt.Errorf("%s not found (run `muxdev init` to create it)", cfgPath)
 		}
 		if err := runInitWizard(cfgPath); err != nil {
@@ -141,6 +141,22 @@ func resolveConfigPath(explicit string) (string, error) {
 	return "", fmt.Errorf("%s not found from %s", config.DefaultFilename, cwd)
 }
 
+// resolveRunConfigPath returns the config path for muxdev run. When no manifest
+// exists yet, it defaults to ./muxdev.yaml in cwd so an interactive terminal
+// can launch the init wizard instead of failing immediately.
+func resolveRunConfigPath(explicit string) (string, error) {
+	if path, err := resolveConfigPath(explicit); err == nil {
+		return path, nil
+	} else if explicit != "" {
+		return "", err
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("get working directory: %w", err)
+	}
+	return filepath.Join(cwd, config.DefaultFilename), nil
+}
+
 func resolveWorkDir(cfgPath string) (string, error) {
 	abs, err := filepath.Abs(cfgPath)
 	if err != nil {
@@ -157,6 +173,7 @@ func runInitWizard(path string) error {
 	err = tui.RunConfigure(tui.ConfigureOptions{
 		OutputPath: path,
 		Init:       true,
+		FromRun:    true,
 		WorkDir:    workDir,
 	})
 	if errors.Is(err, tui.ErrAborted) {

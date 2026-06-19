@@ -7,12 +7,14 @@ import (
 )
 
 type runnerLogKeyMap struct {
-	LineUp     key.Binding
-	LineDown   key.Binding
-	PageUp     key.Binding
-	PageDown   key.Binding
-	ScrollUp   key.Binding
-	ScrollDown key.Binding
+	LineUp       key.Binding
+	LineDown     key.Binding
+	PageUp       key.Binding
+	PageDown     key.Binding
+	ScrollUp     key.Binding
+	ScrollDown   key.Binding
+	GracefulQuit key.Binding
+	ForceQuit    key.Binding
 }
 
 var runnerLogKeys = runnerLogKeyMap{
@@ -34,6 +36,12 @@ var runnerLogKeys = runnerLogKeyMap{
 	),
 	ScrollDown: key.NewBinding(
 		key.WithKeys("down", "j"),
+	),
+	GracefulQuit: key.NewBinding(
+		key.WithKeys("ctrl+q", "ctrl+c"),
+	),
+	ForceQuit: key.NewBinding(
+		key.WithKeys("q"),
 	),
 }
 
@@ -133,6 +141,27 @@ func runnerLogArrowScroll(msg tea.KeyMsg) bool {
 		key.Matches(msg, runnerLogKeys.ScrollUp) || key.Matches(msg, runnerLogKeys.ScrollDown)
 }
 
-const logScrollHelp = "pgup/pgdn line  ctrl+u/d page  f filter  r re-run  ctrl+q quit  q force quit"
-const logScrollHelpHistory = "history  pgdn to live  pgup/pgdn line  ctrl+u/d page  f filter  r re-run  ctrl+q quit  q force quit"
-const logScrollHelpAttached = "pgup/pgdn line  ctrl+u/d page  ctrl+q quit  q force quit"
+func runnerGracefulQuitKey(msg tea.KeyMsg) bool {
+	if msg.Type == tea.KeyCtrlQ || msg.Type == tea.KeyCtrlC {
+		return true
+	}
+	if key.Matches(msg, runnerLogKeys.GracefulQuit) {
+		return true
+	}
+	// Some terminals deliver control chords as bare runes instead of KeyCtrl*.
+	if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+		switch msg.Runes[0] {
+		case 17, 3: // ctrl+q, ctrl+c
+			return true
+		}
+	}
+	return false
+}
+
+func runnerForceQuitKey(msg tea.KeyMsg) bool {
+	return key.Matches(msg, runnerLogKeys.ForceQuit)
+}
+
+const logScrollHelp = "pgup/pgdn line  ctrl+u/d page  f filter  r re-run  ctrl+q quit  ctrl+q×2 force  q force"
+const logScrollHelpHistory = "history  pgdn to live  pgup/pgdn line  ctrl+u/d page  f filter  r re-run  ctrl+q quit  ctrl+q×2 force  q force"
+const logScrollHelpAttached = "pgup/pgdn line  ctrl+u/d page  ctrl+q quit  ctrl+q×2 force  q force"

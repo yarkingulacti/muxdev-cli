@@ -18,8 +18,11 @@ go test ./...
 En pratik yol — her kod değişikliğinde otomatik derlenir:
 
 ```bash
+air          # tmp/muxdev derler ve /tmp/muxdev ile senkronlar
 ./bin/muxdev --version
 ```
+
+`./bin/muxdev` önce `/tmp/muxdev` (air), sonra `tmp/muxdev`, yoksa `go run` kullanır.
 
 Daha hızlı tekrar çalıştırma için binary build:
 
