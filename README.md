@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="https://img.shields.io/github/v/release/yarkingulacti/muxdev-cli?logo=github&label=release&style=for-the-badge" alt="release">
+  <a href="https://github.com/yarkingulacti/muxdev-cli/releases"><img src="https://img.shields.io/github/v/release/yarkingulacti/muxdev-cli?logo=github&label=release&style=for-the-badge" alt="release"></a>
   <img src="https://img.shields.io/badge/Go-1.26+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="go">
-  <img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="license">
-  <img src="https://img.shields.io/github/stars/yarkingulacti/muxdev-cli?style=for-the-badge&logo=github" alt="stars">
+  <a href="https://github.com/yarkingulacti/muxdev-cli/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="license"></a>
+  <a href="https://github.com/yarkingulacti/muxdev-cli/stargazers"><img src="https://img.shields.io/github/stars/yarkingulacti/muxdev-cli?label=stars&style=for-the-badge" alt="stars"></a>
 </p>
 
 # 🖥️ muxdev
