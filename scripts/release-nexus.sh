@@ -66,8 +66,18 @@ fi
 nexus_defaults
 
 if [[ "$BUILD" -eq 1 ]]; then
-  goreleaser_bin="${GORELEASER:-goreleaser}"
-  if ! command -v "$goreleaser_bin" >/dev/null 2>&1; then
+  goreleaser_bin=""
+  if [[ -n "${GORELEASER:-}" && -x "$GORELEASER" ]]; then
+    goreleaser_bin="$GORELEASER"
+  elif command -v goreleaser >/dev/null 2>&1; then
+    goreleaser_bin="$(command -v goreleaser)"
+  else
+    candidate="$(go env GOPATH 2>/dev/null)/bin/goreleaser"
+    if [[ -x "$candidate" ]]; then
+      goreleaser_bin="$candidate"
+    fi
+  fi
+  if [[ -z "$goreleaser_bin" ]]; then
     nexus_err "goreleaser not found — install it or pass --no-build with an existing dist/"
   fi
 

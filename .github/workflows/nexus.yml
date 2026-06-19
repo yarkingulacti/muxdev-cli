@@ -49,14 +49,15 @@ jobs:
           cache: true
 
       - name: Install Goreleaser
-        run: go install github.com/goreleaser/goreleaser/v2@latest
+        run: |
+          go install github.com/goreleaser/goreleaser/v2@latest
+          echo "GORELEASER=$(go env GOPATH)/bin/goreleaser" >> "$GITHUB_ENV"
 
       - name: Publish and verify
         env:
           NEXUS_URL: ${{ secrets.NEXUS_URL }}
           NEXUS_REPO: ${{ secrets.NEXUS_REPO }}
           NEXUS_AUTH: ${{ secrets.NEXUS_AUTH }}
-          GORELEASER: ${{ github.workspace }}/go/bin/goreleaser
         run: |
           if [ -z "${NEXUS_URL:-}" ] || [ -z "${NEXUS_AUTH:-}" ]; then
             echo "NEXUS_URL and NEXUS_AUTH secrets are required for publish"
