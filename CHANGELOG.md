@@ -5,6 +5,15 @@ All notable changes to **muxdev** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0](https://github.com/yarkingulacti/muxdev-cli/compare/v1.6.0...v1.7.0) (2026-06-19)
+
+
+### Added
+
+* **cli:** add remove command for project cleanup ([43d28c4](https://github.com/yarkingulacti/muxdev-cli/commit/43d28c42806040604beb200f83cfc6a73f64e5d4))
+* **tui:** improve init, quit flows, and runtime UX ([4bdf585](https://github.com/yarkingulacti/muxdev-cli/commit/4bdf58570d9ae28b610b7e6e6b2ec5c3d310577d))
+* **tui:** runtime UX improvements and remove command ([355fff3](https://github.com/yarkingulacti/muxdev-cli/commit/355fff3ec175fb406eaa0caeeadb4ed8ed21b8a9))
+
 ## [1.6.0](https://github.com/yarkingulacti/muxdev-cli/compare/v1.5.0...v1.6.0) (2026-06-19)
 
 
