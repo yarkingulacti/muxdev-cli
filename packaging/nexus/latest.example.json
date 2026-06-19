@@ -1,8 +1,8 @@
 {
   "version": "1.0.0",
   "tag": "v1.0.0",
-  "base_url": "https://apps.developeryarkin.com/repository/muxdev-releases/stable/v1.0.0",
-  "checksums": "https://apps.developeryarkin.com/repository/muxdev-releases/stable/v1.0.0/checksums.txt",
+  "base_url": "https://nexus.example.com/repository/muxdev-releases/stable/v1.0.0",
+  "checksums": "https://nexus.example.com/repository/muxdev-releases/stable/v1.0.0/checksums.txt",
   "assets": {
     "linux_amd64": "muxdev_1.0.0_linux_amd64.tar.gz",
     "linux_arm64": "muxdev_1.0.0_linux_arm64.tar.gz",

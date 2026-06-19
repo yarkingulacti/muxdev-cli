@@ -85,18 +85,18 @@ muxdev version --short    # 0.1.0
 Point the updater at a manifest URL (e.g. Nexus raw repo):
 
 ```bash
-export MUXDEV_UPDATE_URL="http://5.178.111.150:8081/repository/muxdev-releases/stable/latest.json"
+export MUXDEV_UPDATE_URL="https://nexus.example.com/repository/muxdev-releases/stable/latest.json"
 muxdev update --check
 ```
 
-Optional auth (when anonymous upload/read is disabled):
+Optional auth (when anonymous read is disabled):
 
 ```bash
-export MUXDEV_UPDATE_USER=deploy
-export MUXDEV_UPDATE_TOKEN=secret
+export MUXDEV_UPDATE_USER=your-user
+export MUXDEV_UPDATE_TOKEN=your-token
 ```
 
-Publish release artifacts with `scripts/release-nexus.sh v1.0.0` (requires `NEXUS_AUTH=user:pass` in `.env` or env).
+Publish release artifacts with `scripts/release-nexus.sh v1.0.0` (requires `NEXUS_AUTH` in `.env` or env).
 
 Verify an existing publish:
 
@@ -106,7 +106,7 @@ Verify an existing publish:
 ./scripts/test-nexus.sh --live   # verify remote latest.json
 ```
 
-**GitHub Releases:** pushing a `v*` tag runs `.github/workflows/release.yml` (Goreleaser + Nexus upload + verify). Required repository secrets: `NEXUS_URL`, `NEXUS_AUTH`, and optionally `NEXUS_REPO`. After the workflow finishes, `MUXDEV_UPDATE_URL` above points at the new `latest.json`.
+**GitHub Releases:** pushing a `v*` tag runs `.github/workflows/release.yml` (Goreleaser + optional Nexus upload + verify). Set repository secrets `NEXUS_URL`, `NEXUS_AUTH`, and optionally `NEXUS_REPO`. After publish, point `MUXDEV_UPDATE_URL` at your `latest.json`.
 
 Package manager installs should use their native upgrade commands (`brew upgrade`, `scoop update`, `winget upgrade`).
 
@@ -155,9 +155,9 @@ services:
     depends_on: [backend]
 ```
 
-## First consumer
+## Example manifest
 
-[voice-synt](https://github.com/yarkingulacti/voice-synt) — voice synthesis platform. The current dev TUI (`scripts/lib/dev-*.sh`) is the reference implementation to extract into this repo.
+See [testdata/muxdev.yaml](testdata/muxdev.yaml) for a minimal project config you can copy into your repo.
 
 ## Runtime
 

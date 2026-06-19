@@ -13,14 +13,14 @@ Usage: $0 <version>
 Upload muxdev release artifacts from \${DIST_DIR}/ to Nexus.
 
 Environment:
-  NEXUS_URL       Base URL (default: http://5.178.111.150:8081)
+  NEXUS_URL       Base URL (default: http://127.0.0.1:8081)
   NEXUS_REPO      Repository name (default: muxdev-releases)
   NEXUS_CHANNEL   Channel path (default: stable)
   DIST_DIR        Goreleaser output directory (default: dist)
   NEXUS_AUTH      user:password for Basic auth (required for upload)
 
 Example:
-  NEXUS_AUTH=deploy:secret $0 v1.0.0
+  NEXUS_AUTH=user:password $0 v1.0.0
 EOF
 }
 

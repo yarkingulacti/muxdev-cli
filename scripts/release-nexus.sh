@@ -26,7 +26,7 @@ Environment:
   GORELEASER       Path to goreleaser binary (default: goreleaser)
 
 Example:
-  NEXUS_AUTH=deploy:secret $0 v1.0.0
+  NEXUS_AUTH=user:password $0 v1.0.0
 EOF
 }
 

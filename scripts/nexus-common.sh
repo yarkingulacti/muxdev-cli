@@ -18,7 +18,7 @@ nexus_load_env() {
 
 nexus_defaults() {
   nexus_load_env
-  NEXUS_URL="${NEXUS_URL:-https://apps.developeryarkin.com}"
+  NEXUS_URL="${NEXUS_URL:-http://127.0.0.1:8081}"
   NEXUS_REPO="${NEXUS_REPO:-muxdev-releases}"
   NEXUS_CHANNEL="${NEXUS_CHANNEL:-stable}"
   DIST_DIR="${DIST_DIR:-dist}"
