@@ -5,6 +5,19 @@ All notable changes to **muxdev** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0](https://github.com/yarkingulacti/muxdev-cli/compare/v1.3.1...v1.4.0) (2026-06-19)
+
+
+### Added
+
+* **help:** improve help center UI and fix cross-platform tests ([9e66c3f](https://github.com/yarkingulacti/muxdev-cli/commit/9e66c3f8b0939908c06021ca11c5c89f5d04ab21))
+* **tui:** add runtime re-run picker ([cfcf3a0](https://github.com/yarkingulacti/muxdev-cli/commit/cfcf3a01bce60a0893e03436b0b733b378b4867f))
+
+
+### Fixed
+
+* **ci:** idempotent release pipeline and sync release-please ([4fbb26f](https://github.com/yarkingulacti/muxdev-cli/commit/4fbb26fa40b869d6cba7c2f5f0ef3453412b3cc2))
+
 ## [1.3.2](https://github.com/yarkingulacti/muxdev-cli/compare/v1.3.1...v1.3.2) (2026-06-19)
 
 ### Added
