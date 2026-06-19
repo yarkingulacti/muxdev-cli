@@ -1,5 +1,4 @@
-# Release publishing moved to release-please.yml (runs after Release Please creates the tag).
-# This file is kept for manual recovery only.
+# Manual recovery: build/publish GitHub assets + Nexus for an existing tag on master.
 
 name: Release (manual)
 
@@ -19,7 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  goreleaser:
+  publish:
     runs-on: ubuntu-latest
     steps:
       - name: Validate SemVer tag
@@ -48,24 +47,22 @@ jobs:
       - name: Test
         run: go test ./...
 
-      - name: Prepare release notes
-        run: |
-          chmod +x scripts/release-notes.sh
-          ./scripts/release-notes.sh "${{ github.event.inputs.tag }}" > /tmp/release-notes.md
-
       - name: Install Goreleaser
         run: go install github.com/goreleaser/goreleaser/v2@latest
 
-      - name: Goreleaser release
+      - name: Prepare release notes
+        run: |
+          chmod +x scripts/release-notes.sh scripts/goreleaser-release.sh scripts/upload-nexus.sh scripts/verify-nexus.sh
+          ./scripts/release-notes.sh "${{ github.event.inputs.tag }}" > /tmp/release-notes.md
+
+      - name: Goreleaser (idempotent)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          GORELEASER: ${{ github.workspace }}/goreleaser
         run: |
-          ARGS=(release --clean --release-notes=/tmp/release-notes.md)
-          if [ -z "${TAP_GITHUB_TOKEN:-}" ]; then
-            ARGS+=(--skip=homebrew --skip=scoop)
-          fi
-          "$(go env GOPATH)/bin/goreleaser" "${ARGS[@]}"
+          cp "$(go env GOPATH)/bin/goreleaser" "$GORELEASER"
+          ./scripts/goreleaser-release.sh "${{ github.event.inputs.tag }}" /tmp/release-notes.md
 
       - name: Upload to Nexus
         env:
@@ -80,7 +77,5 @@ jobs:
             exit 1
           fi
           NEXUS_REPO="${NEXUS_REPO:-muxdev-releases}"
-          TAG="${{ github.event.inputs.tag }}"
-          chmod +x scripts/upload-nexus.sh scripts/verify-nexus.sh
-          ./scripts/upload-nexus.sh "$TAG"
+          ./scripts/upload-nexus.sh "${{ github.event.inputs.tag }}"
           ./scripts/verify-nexus.sh
