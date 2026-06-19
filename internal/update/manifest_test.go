@@ -78,6 +78,41 @@ func TestCheckManifestPinnedVersion(t *testing.T) {
 	}
 }
 
+func TestRewriteStaleManifestBaseURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if path.Base(r.URL.Path) != "latest.json" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+  "version": "1.0.0",
+  "tag": "v1.0.0",
+  "base_url": "http://127.0.0.1:8081/repository/muxdev-releases/stable/v1.0.0",
+  "checksums": "http://127.0.0.1:8081/repository/muxdev-releases/stable/v1.0.0/checksums.txt",
+  "assets": {"linux_amd64": "muxdev_1.0.0_linux_amd64.tar.gz"}
+}`))
+	}))
+	defer server.Close()
+
+	manifestURL := server.URL + "/repository/muxdev-releases/stable/latest.json"
+	result, err := update.Check(context.Background(), update.CheckOptions{
+		ManifestURL: manifestURL,
+	})
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	wantBase := server.URL + "/repository/muxdev-releases/stable/v1.0.0"
+	asset, err := update.FindAsset(result.Release, "muxdev_1.0.0_linux_amd64.tar.gz")
+	if err != nil {
+		t.Fatalf("FindAsset() error = %v", err)
+	}
+	wantURL := wantBase + "/muxdev_1.0.0_linux_amd64.tar.gz"
+	if asset.BrowserDownloadURL != wantURL {
+		t.Fatalf("download URL = %q, want %q", asset.BrowserDownloadURL, wantURL)
+	}
+}
+
 func TestManifestHTTPError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

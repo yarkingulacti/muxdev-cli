@@ -16,8 +16,9 @@ var (
 
 // Conflict describes a detected port collision from service logs.
 type Conflict struct {
-	Port  int
-	Fatal bool // true when the service crashed (EADDRINUSE)
+	Port       int
+	Fatal      bool // true when the service crashed (EADDRINUSE)
+	FromConfig bool // true when Port came from service config/env, not the log line
 }
 
 // ParseConflict extracts port conflict info from a log line.
@@ -27,7 +28,7 @@ func ParseConflict(line string, hintPort int) (Conflict, bool) {
 		return c, true
 	}
 	if addressAlreadyInUseRE.MatchString(line) && validPort(hintPort) {
-		return Conflict{Port: hintPort, Fatal: true}, true
+		return Conflict{Port: hintPort, Fatal: true, FromConfig: true}, true
 	}
 	return Conflict{}, false
 }
@@ -75,8 +76,14 @@ func validPort(n int) bool {
 }
 
 func (c Conflict) Message() string {
+	var base string
 	if c.Fatal {
-		return fmt.Sprintf("Port %d is already in use", c.Port)
+		base = fmt.Sprintf("Port %d is already in use", c.Port)
+	} else {
+		base = fmt.Sprintf("Port %d is in use (service may pick another port)", c.Port)
 	}
-	return fmt.Sprintf("Port %d is in use (service may pick another port)", c.Port)
+	if c.FromConfig {
+		return base + " (from service config/env — check logs for the actual port if different)"
+	}
+	return base
 }

@@ -12,6 +12,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/yarkingulacti/muxdev-cli/internal/config"
+	"github.com/yarkingulacti/muxdev-cli/internal/logs"
 	"github.com/yarkingulacti/muxdev-cli/internal/runner"
 	"github.com/yarkingulacti/muxdev-cli/internal/tui"
 	"github.com/yarkingulacti/muxdev-cli/internal/update"
@@ -65,6 +66,7 @@ func run(opts Options, focus string) error {
 		}
 		err := tui.Run(tui.Options{
 			Cfg:        cfg,
+			ConfigPath: cfgPath,
 			Focus:      focusIDs,
 			WorkDir:    workDir,
 			UpdateHint: hint,
@@ -82,11 +84,28 @@ func run(opts Options, focus string) error {
 	}
 
 	r := runner.New(cfg, serviceIDs, runtime)
-	return r.Run(runner.Context{
+	session, err := logs.StartSession(workDir, cfgPath, serviceIDs, string(runtime))
+	if err != nil {
+		session = nil
+	}
+
+	runErr := r.Run(runner.Context{
 		WorkDir: workDir,
-		Stdout:  os.Stdout,
-		Stderr:  os.Stderr,
+		OnLine: func(label string, stderr bool, text string) {
+			if session != nil {
+				_ = session.Append(label, text)
+			}
+			out := os.Stdout
+			if stderr {
+				out = os.Stderr
+			}
+			fmt.Fprintf(out, "[%s] %s\n", label, text)
+		},
 	})
+	if session != nil {
+		_ = session.Finish(runErr)
+	}
+	return runErr
 }
 
 func backgroundUpdateCheck() {

@@ -58,7 +58,7 @@ fi
 for f in "${files[@]}"; do
   name="$(basename "$f")"
   printf 'uploading %s\n' "$name"
-  if ! nexus_curl --upload-file "$f" "${BASE}/${name}"; then
+  if ! nexus_upload_file "$f" "${BASE}/${name}"; then
     nexus_err "upload failed for ${name} — set NEXUS_AUTH=user:pass"
   fi
 done
@@ -69,12 +69,12 @@ trap 'rm -f "$manifest"' EXIT
 nexus_generate_manifest "$VERSION" "$TAG" "$BASE" "$DIST_DIR" "$manifest"
 
 printf 'uploading manifest.json\n'
-if ! nexus_curl --upload-file "$manifest" "${BASE}/manifest.json"; then
+if ! nexus_upload_file "$manifest" "${BASE}/manifest.json"; then
   nexus_err "upload failed for manifest.json"
 fi
 
 printf 'uploading latest.json\n'
-if ! nexus_curl --upload-file "$manifest" "${PUBLISH_BASE}/latest.json"; then
+if ! nexus_upload_file "$manifest" "${PUBLISH_BASE}/latest.json"; then
   nexus_err "upload failed for latest.json"
 fi
 

@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/yarkingulacti/muxdev-cli/internal/config"
 )
 
@@ -52,5 +55,78 @@ func TestFilterMenuIndex(t *testing.T) {
 
 	if got := m.filterMenuIndex(); got != 2 {
 		t.Fatalf("filterMenuIndex() = %d, want 2", got)
+	}
+}
+
+func TestRefreshLogViewportPreservesHistoryScroll(t *testing.T) {
+	m := runnerModel{
+		ready:      true,
+		followTail: false,
+		entries: []logEntry{
+			{label: "svc", text: "line-0"},
+			{label: "svc", text: "line-1"},
+			{label: "svc", text: "line-2"},
+			{label: "svc", text: "line-3"},
+			{label: "svc", text: "line-4"},
+		},
+	}
+	m.viewport = viewport.New(40, 2)
+	m.viewport.KeyMap = runnerLogViewportKeyMap()
+	m.refreshLogViewport()
+
+	m.viewport.SetYOffset(1)
+	m.appendLog(logMsg{label: "svc", text: "line-5"})
+	m.refreshLogViewport()
+
+	if m.viewport.YOffset != 1 {
+		t.Fatalf("YOffset = %d, want 1 while browsing history", m.viewport.YOffset)
+	}
+
+	m.followTail = true
+	m.appendLog(logMsg{label: "svc", text: "line-6"})
+	m.refreshLogViewport()
+	if !m.viewport.AtBottom() {
+		t.Fatalf("expected viewport at bottom when followTail is true")
+	}
+}
+
+func TestHandleLogScrollLineAndPage(t *testing.T) {
+	m := runnerModel{
+		ready:      true,
+		followTail: true,
+		entries: []logEntry{
+			{label: "svc", text: "a"},
+			{label: "svc", text: "b"},
+			{label: "svc", text: "c"},
+			{label: "svc", text: "d"},
+			{label: "svc", text: "e"},
+		},
+	}
+	m.viewport = viewport.New(20, 2)
+	m.viewport.KeyMap = runnerLogViewportKeyMap()
+	m.refreshLogViewport()
+
+	bottom := m.viewport.YOffset
+	if !m.handleLogScroll(tea.KeyMsg{Type: tea.KeyPgUp}) {
+		t.Fatal("pgup should be handled")
+	}
+	if m.viewport.YOffset != bottom-1 || m.followTail {
+		t.Fatalf("after pgup: offset=%d followTail=%v", m.viewport.YOffset, m.followTail)
+	}
+
+	start := m.viewport.YOffset
+	if !m.handleLogScroll(tea.KeyMsg{Type: tea.KeyCtrlPgUp}) {
+		t.Fatal("ctrl+pgup should be handled")
+	}
+	if m.viewport.YOffset >= start {
+		t.Fatalf("ctrl+pgup should scroll further up: start=%d now=%d", start, m.viewport.YOffset)
+	}
+
+	m.refreshLogViewport()
+	if !m.handleLogScroll(tea.KeyMsg{Type: tea.KeyCtrlU}) {
+		t.Fatal("ctrl+u should page up")
+	}
+	if m.viewport.YOffset != 0 {
+		t.Fatalf("ctrl+u should reach top, offset=%d", m.viewport.YOffset)
 	}
 }

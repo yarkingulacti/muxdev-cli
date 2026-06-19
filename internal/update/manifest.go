@@ -74,10 +74,39 @@ func fetchManifest(ctx context.Context, manifestURL string) (Manifest, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
 		return Manifest{}, fmt.Errorf("decode manifest: %w", err)
 	}
+	rewriteManifestBaseURL(manifestURL, &manifest)
 	if err := manifest.validate(); err != nil {
 		return Manifest{}, err
 	}
 	return manifest, nil
+}
+
+// rewriteManifestBaseURL aligns base_url with the URL used to fetch the manifest.
+// Uploads may record an internal NEXUS_URL while clients fetch via a public proxy.
+func rewriteManifestBaseURL(manifestURL string, m *Manifest) {
+	manifestURL = strings.TrimSpace(manifestURL)
+	if manifestURL == "" {
+		return
+	}
+	mu, err := url.Parse(manifestURL)
+	if err != nil || mu.Scheme == "" || mu.Host == "" {
+		return
+	}
+	publishDir := path.Dir(mu.Path)
+	if path.Base(mu.Path) == "manifest.json" {
+		mu.Path = publishDir
+	} else {
+		tag := m.tagName()
+		if tag == "" {
+			return
+		}
+		mu.Path = path.Join(publishDir, tag)
+	}
+	mu.RawQuery = ""
+	mu.Fragment = ""
+	base := strings.TrimSuffix(mu.String(), "/")
+	m.BaseURL = base
+	m.Checksums = base + "/checksums.txt"
 }
 
 func (m Manifest) validate() error {

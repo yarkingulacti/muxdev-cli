@@ -5,6 +5,21 @@ All notable changes to **muxdev** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0](https://github.com/yarkingulacti/muxdev-cli/compare/v1.2.0...v1.3.0) (2026-06-19)
+
+### Added
+
+- Persistent session logs with `muxdev logs` CLI and TUI viewer
+- Interactive help wiki (`muxdev help`, `-h` / `--help` per command)
+- Runtime log scroll history (PgUp/PgDn, Ctrl+U/D) and pagination footer
+- Layered port resolution via `BindPortForService` and process-tree port kill
+
+### Fixed
+
+- Graceful shutdown: stop services and release ports on TUI quit
+- Nexus manifest `base_url` rewrite when clients fetch via public proxy URL
+- Nexus upload overwrite (delete-then-PUT) for `latest.json` and release assets
+
 ## [1.2.0](https://github.com/yarkingulacti/muxdev-cli/compare/v1.1.0...v1.2.0) (2026-06-19)
 
 ### Added

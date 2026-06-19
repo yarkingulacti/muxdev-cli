@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/yarkingulacti/muxdev-cli/internal/config"
 	"github.com/yarkingulacti/muxdev-cli/internal/platform"
@@ -60,6 +61,7 @@ func (r *Runner) Run(ctx Context) error {
 
 func (r *Runner) runSync(rootCtx context.Context, ctx Context, order []string, cancel context.CancelFunc) error {
 	handles := make([]*serviceHandle, 0, len(order))
+	defer r.stopAll(handles)
 
 	for _, id := range order {
 		if rootCtx.Err() != nil {
@@ -68,9 +70,6 @@ func (r *Runner) runSync(rootCtx context.Context, ctx Context, order []string, c
 		handle, err := r.launchService(rootCtx, ctx, id)
 		if err != nil {
 			cancel()
-			for _, h := range handles {
-				_ = h.wait(rootCtx)
-			}
 			return err
 		}
 		handles = append(handles, handle)
@@ -106,13 +105,9 @@ func (r *Runner) runAsync(rootCtx context.Context, ctx Context, order []string, 
 	}
 	wg.Wait()
 
+	defer r.stopAll(handles)
+
 	if launchErr != nil {
-		mu.Lock()
-		h := append([]*serviceHandle(nil), handles...)
-		mu.Unlock()
-		for _, handle := range h {
-			_ = handle.wait(rootCtx)
-		}
 		return launchErr
 	}
 
@@ -120,6 +115,12 @@ func (r *Runner) runAsync(rootCtx context.Context, ctx Context, order []string, 
 	h := append([]*serviceHandle(nil), handles...)
 	mu.Unlock()
 	return r.waitHandles(rootCtx, cancel, h)
+}
+
+func (r *Runner) stopAll(handles []*serviceHandle) {
+	for _, handle := range handles {
+		handle.stop()
+	}
 }
 
 func (r *Runner) waitHandles(rootCtx context.Context, cancel context.CancelFunc, handles []*serviceHandle) error {
@@ -149,6 +150,9 @@ func (r *Runner) waitHandles(rootCtx context.Context, cancel context.CancelFunc,
 
 	select {
 	case <-rootCtx.Done():
+		for _, handle := range handles {
+			handle.stop()
+		}
 		<-done
 	case <-done:
 	}
@@ -170,6 +174,7 @@ type serviceHandle struct {
 	id       string
 	cmd      *exec.Cmd
 	streamWG sync.WaitGroup
+	stopped  bool
 }
 
 func (r *Runner) launchService(ctx context.Context, runCtx Context, serviceID string) (*serviceHandle, error) {
@@ -208,17 +213,45 @@ func (r *Runner) launchService(ctx context.Context, runCtx Context, serviceID st
 	return handle, nil
 }
 
-func (h *serviceHandle) wait(ctx context.Context) error {
-	waitErr := h.cmd.Wait()
-	h.streamWG.Wait()
+func (h *serviceHandle) stop() {
+	if h.stopped {
+		return
+	}
+	h.stopped = true
+	platform.StopProcessGroup(h.cmd)
+}
 
-	if ctx.Err() != nil {
+func (h *serviceHandle) wait(ctx context.Context) error {
+	if h.cmd == nil {
 		return nil
 	}
-	if waitErr != nil {
-		return fmt.Errorf("service %q: %w", h.id, waitErr)
+
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- h.cmd.Wait()
+	}()
+
+	select {
+	case <-ctx.Done():
+		h.stop()
+		select {
+		case <-waitDone:
+		case <-time.After(5 * time.Second):
+			platform.KillProcessGroup(h.cmd)
+			<-waitDone
+		}
+		h.streamWG.Wait()
+		return nil
+	case err := <-waitDone:
+		h.streamWG.Wait()
+		if ctx.Err() != nil {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("service %q: %w", h.id, err)
+		}
+		return nil
 	}
-	return nil
 }
 
 func streamLines(ctx context.Context, runCtx Context, label string, stderr bool, r io.Reader) {

@@ -9,47 +9,11 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 )
 
 // KillPort terminates processes listening on the given TCP port.
 func KillPort(port int) (int, error) {
-	pids, err := PIDsOnPort(port)
-	if err != nil {
-		return 0, err
-	}
-	if len(pids) == 0 {
-		return 0, fmt.Errorf("no process found on port %d", port)
-	}
-
-	killed := 0
-	for _, pid := range pids {
-		proc, err := os.FindProcess(pid)
-		if err != nil {
-			continue
-		}
-		if err := proc.Signal(syscall.SIGTERM); err != nil {
-			continue
-		}
-		killed++
-	}
-
-	time.Sleep(300 * time.Millisecond)
-
-	for _, pid := range pids {
-		if processAlive(pid) {
-			proc, _ := os.FindProcess(pid)
-			if proc != nil {
-				_ = proc.Signal(syscall.SIGKILL)
-			}
-		}
-	}
-
-	remaining, _ := PIDsOnPort(port)
-	if len(remaining) > 0 {
-		return killed, fmt.Errorf("port %d still in use", port)
-	}
-	return killed, nil
+	return killPortWithRetry(port)
 }
 
 func PIDsOnPort(port int) ([]int, error) {

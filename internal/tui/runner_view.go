@@ -6,12 +6,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/yarkingulacti/muxdev-cli/internal/config"
+	"github.com/yarkingulacti/muxdev-cli/internal/logs"
 	"github.com/yarkingulacti/muxdev-cli/internal/portkill"
 	"github.com/yarkingulacti/muxdev-cli/internal/runner"
 )
@@ -35,9 +37,10 @@ type runDoneMsg struct {
 }
 
 type runnerStartedMsg struct {
-	cancel context.CancelFunc
-	logCh  chan logMsg
-	doneCh chan runDoneMsg
+	cancel  context.CancelFunc
+	logCh   chan logMsg
+	doneCh  chan runDoneMsg
+	session *logs.Writer
 }
 
 type portKillMsg struct {
@@ -65,6 +68,7 @@ type attachDoneMsg struct {
 
 type runnerModel struct {
 	cfg        *config.Config
+	configPath string
 	serviceIDs []string
 	workDir    string
 	viewport   viewport.Model
@@ -95,10 +99,13 @@ type runnerModel struct {
 	attachCancel context.CancelFunc
 	attachLogCh  chan logMsg
 	attachDoneCh chan attachDoneMsg
+	shuttingDown bool
+	followTail   bool
+	session      *logs.Writer
 }
 
-func runLogs(cfg *config.Config, serviceIDs []string, workDir, updateHint string, runtime config.Runtime) error {
-	model := newRunnerModel(cfg, serviceIDs, workDir, updateHint, runtime)
+func runLogs(cfg *config.Config, configPath string, serviceIDs []string, workDir, updateHint string, runtime config.Runtime) error {
+	model := newRunnerModel(cfg, configPath, serviceIDs, workDir, updateHint, runtime)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	final, err := p.Run()
 	if err != nil {
@@ -108,17 +115,19 @@ func runLogs(cfg *config.Config, serviceIDs []string, workDir, updateHint string
 	return m.runErr
 }
 
-func newRunnerModel(cfg *config.Config, serviceIDs []string, workDir, updateHint string, runtime config.Runtime) runnerModel {
+func newRunnerModel(cfg *config.Config, configPath string, serviceIDs []string, workDir, updateHint string, runtime config.Runtime) runnerModel {
 	if runtime == "" {
 		runtime = config.DefaultRuntime
 	}
 	return runnerModel{
 		cfg:        cfg,
+		configPath: configPath,
 		serviceIDs: serviceIDs,
 		workDir:    workDir,
 		runtime:    runtime,
 		entries:    make([]logEntry, 0, 256),
 		updateHint: updateHint,
+		followTail: true,
 	}
 }
 
@@ -131,6 +140,11 @@ func (m runnerModel) startRunner() tea.Cmd {
 		ctx, cancel := context.WithCancel(context.Background())
 		logCh := make(chan logMsg, 128)
 		doneCh := make(chan runDoneMsg, 1)
+
+		session, err := logs.StartSession(m.workDir, m.configPath, m.serviceIDs, string(m.runtime))
+		if err != nil {
+			session = nil
+		}
 
 		go func() {
 			r := runner.New(m.cfg, m.serviceIDs, m.runtime)
@@ -149,9 +163,10 @@ func (m runnerModel) startRunner() tea.Cmd {
 		}()
 
 		return runnerStartedMsg{
-			cancel: cancel,
-			logCh:  logCh,
-			doneCh: doneCh,
+			cancel:  cancel,
+			logCh:   logCh,
+			doneCh:  doneCh,
+			session: session,
 		}
 	}
 }
@@ -162,16 +177,21 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cancel = msg.cancel
 		m.logCh = msg.logCh
 		m.doneCh = msg.doneCh
+		if m.session != nil {
+			_ = m.session.Finish(nil)
+		}
+		m.session = msg.session
 		m.done = false
 		m.conflictNote = ""
-		m.refreshLogViewport(false)
+		m.followTail = true
+		m.refreshLogViewport()
 		return m, tea.Batch(waitForLog(m.logCh), waitForDone(m.doneCh))
 	case logMsg:
 		m.appendLog(msg)
 		if !m.attached {
 			m.detectPortConflict(msg)
 		}
-		m.refreshLogViewport(true)
+		m.refreshLogViewport()
 		if m.attached {
 			return m, waitForAttachLog(m.attachLogCh)
 		}
@@ -180,7 +200,7 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.killPending = false
 		if msg.err != nil {
 			m.conflictNote = errStyle.Render(fmt.Sprintf(
-				"Could not free port %d: %v — if kill failed, check logs for the actual port in use",
+				"Could not free port %d: %v",
 				msg.port, msg.err,
 			))
 		} else {
@@ -222,7 +242,7 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.attachCancel = msg.cancel
 		m.attachLogCh = msg.logCh
 		m.attachDoneCh = msg.doneCh
-		m.refreshLogViewport(true)
+		m.refreshLogViewport()
 		return m, tea.Batch(waitForAttachLog(m.attachLogCh), waitForAttachDone(m.attachDoneCh))
 	case attachDoneMsg:
 		if !m.attached {
@@ -242,8 +262,15 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case runDoneMsg:
 		m.drainPendingLogs()
 		m.runErr = msg.err
+		if m.session != nil {
+			_ = m.session.Finish(msg.err)
+			m.session = nil
+		}
 		if m.attachPending {
 			return m, nil
+		}
+		if m.shuttingDown {
+			return m, tea.Quit
 		}
 		if m.portConflict != nil && m.portConflict.Fatal {
 			m.awaitingKill = true
@@ -279,9 +306,13 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.filterLabel = items[m.filterCursor].label
 				}
 				m.filterMenu = false
-				m.refreshLogViewport(false)
+				m.refreshLogViewport()
 				return m, nil
 			}
+			return m, nil
+		}
+
+		if m.ready && !m.awaitingKill && m.handleLogScroll(msg) {
 			return m, nil
 		}
 
@@ -294,9 +325,13 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.attachCancel()
 			}
 			if m.cancel != nil {
+				m.shuttingDown = true
 				m.cancel()
 			}
-			return m, tea.Quit
+			if m.doneCh == nil {
+				return m, tea.Quit
+			}
+			return m, nil
 		case "a", "A":
 			if m.attachPending || m.killPending || m.portConflict == nil || !m.portConflict.Fatal {
 				return m, nil
@@ -310,7 +345,7 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.killPending = true
 			port := m.portConflict.Port
-			return m, killPortCmd(port)
+			return m, killPortCmd(port, m.cancel)
 		case "n", "N", "enter":
 			if m.awaitingKill {
 				m.awaitingKill = false
@@ -330,7 +365,7 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.filterCursor = m.filterMenuIndex()
 			return m, nil
 		}
-		if m.ready && !m.awaitingKill {
+		if m.ready && !m.awaitingKill && !logScrollKey(msg) {
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
@@ -346,12 +381,13 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if !m.ready {
 			m.viewport = viewport.New(msg.Width, viewHeight)
-			m.refreshLogViewport(true)
+			m.viewport.KeyMap = runnerLogViewportKeyMap()
+			m.refreshLogViewport()
 			m.ready = true
 		} else {
 			m.viewport.Width = msg.Width
 			m.viewport.Height = viewHeight
-			m.refreshLogViewport(false)
+			m.refreshLogViewport()
 		}
 	}
 	return m, nil
@@ -397,9 +433,7 @@ func (m runnerModel) hintPortForLog(msg logMsg) int {
 			continue
 		}
 		if label == serviceLogLabel(m.cfg, id) || label == id {
-			resolved := config.ResolveServicePort(m.cfg, m.workDir, svc)
-			port, err := strconv.Atoi(strings.TrimSpace(resolved.Port))
-			if err == nil && port > 0 {
+			if port := config.BindPortForService(m.workDir, svc); port > 0 {
 				return port
 			}
 		}
@@ -428,6 +462,8 @@ func (m runnerModel) View() string {
 		status = fmt.Sprintf("Attached: %s", m.attachLabel)
 	} else if m.awaitingKill {
 		status = "Port conflict — action required"
+	} else if !m.followTail {
+		status += mutedStyle.Render("  ·  history")
 	}
 	header := renderHeader(m.cfg, m.width, status)
 
@@ -449,7 +485,10 @@ func (m runnerModel) renderFooter() string {
 		return helpStyle.Render("↑/↓ select  enter apply  esc cancel")
 	}
 	if m.attached {
-		base := "↑/↓ scroll  q quit"
+		base := logScrollHelpAttached
+		if pag := m.logPaginationLabel(); pag != "" {
+			base = pag + "  |  " + base
+		}
 		if m.conflictNote != "" {
 			return helpStyle.Render(m.conflictNote + "  |  " + base)
 		}
@@ -466,14 +505,24 @@ func (m runnerModel) renderFooter() string {
 		if m.attachPending {
 			hint = "attaching..."
 		}
-		return helpStyle.Render(m.conflictNote + "  |  " + hint)
+		line := m.conflictNote + "  |  " + hint
+		if pag := m.logPaginationLabel(); pag != "" {
+			line = m.conflictNote + "  |  " + pag + "  |  " + hint
+		}
+		return helpStyle.Render(line)
 	}
-	base := "↑/↓ scroll  f filter  pgup/pgdn  q quit"
+	base := logScrollHelp
+	if !m.followTail {
+		base = logScrollHelpHistory
+	}
 	if m.filterLabel != "" {
-		base = "↑/↓ scroll  f filter (" + m.filterLabel + ")  q quit"
+		base = "pgup/pgdn line  ctrl+u/d page  f filter (" + m.filterLabel + ")  q quit"
 	}
 	if m.updateHint != "" {
 		base = m.updateHint + "  |  " + base
+	}
+	if pag := m.logPaginationLabel(); pag != "" {
+		base = pag + "  |  " + base
 	}
 	return helpStyle.Render(base)
 }
@@ -482,6 +531,7 @@ func (m *runnerModel) clearLogs() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.entries = m.entries[:0]
+	m.followTail = true
 }
 
 func (m *runnerModel) appendLog(msg logMsg) {
@@ -495,6 +545,9 @@ func (m *runnerModel) appendLog(msg logMsg) {
 	})
 	if len(m.entries) > maxLogLines {
 		m.entries = m.entries[len(m.entries)-maxLogLines:]
+	}
+	if m.session != nil {
+		_ = m.session.Append(msg.label, msg.text)
 	}
 }
 
@@ -520,13 +573,16 @@ func (m runnerModel) logContent() string {
 	return strings.Join(lines, "\n")
 }
 
-func (m *runnerModel) refreshLogViewport(scrollBottom bool) {
+func (m *runnerModel) refreshLogViewport() {
 	if !m.ready || m.filterMenu {
 		return
 	}
+	offset := m.viewport.YOffset
 	m.viewport.SetContent(m.logContent())
-	if scrollBottom {
+	if m.followTail {
 		m.viewport.GotoBottom()
+	} else {
+		m.viewport.SetYOffset(offset)
 	}
 }
 
@@ -615,8 +671,19 @@ func waitForDone(ch chan runDoneMsg) tea.Cmd {
 	}
 }
 
-func killPortCmd(port int) tea.Cmd {
+func killPortCmd(port int, cancel context.CancelFunc) tea.Cmd {
 	return func() tea.Msg {
+		if cancel != nil {
+			cancel()
+			deadline := time.Now().Add(1200 * time.Millisecond)
+			for time.Now().Before(deadline) {
+				time.Sleep(100 * time.Millisecond)
+				pids, err := portkill.PIDsOnPort(port)
+				if err != nil || len(pids) == 0 {
+					break
+				}
+			}
+		}
 		killed, err := portkill.KillPort(port)
 		return portKillMsg{port: port, killed: killed, err: err}
 	}

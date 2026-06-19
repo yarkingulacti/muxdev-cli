@@ -12,9 +12,6 @@ import (
 	"sync"
 )
 
-// LineHandler receives stdout/stderr lines from an attached process.
-type LineHandler func(stderr bool, text string)
-
 // AttachProcess streams output from the given PID until ctx is cancelled or the process exits.
 func AttachProcess(ctx context.Context, pid int, onLine LineHandler) error {
 	if onLine == nil {

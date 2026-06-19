@@ -78,7 +78,7 @@ func TestParseConflictUvicornErrno98(t *testing.T) {
 	if !ok {
 		t.Fatal("expected conflict")
 	}
-	if c.Port != 5005 || !c.Fatal {
+	if c.Port != 5005 || !c.Fatal || !c.FromConfig {
 		t.Fatalf("conflict = %+v", c)
 	}
 }

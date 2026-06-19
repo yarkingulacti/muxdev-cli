@@ -45,9 +45,12 @@ func NewRoot() *cobra.Command {
 	opts := defaultOptions()
 
 	root := &cobra.Command{
-		Use:     "muxdev",
-		Short:   "Multiplexed dev stack runner",
-		Long:    "Config-driven local development orchestrator with an interactive terminal UI.",
+		Use:   "muxdev",
+		Short: "Multiplexed dev stack runner",
+		Long: `Config-driven local development orchestrator with an interactive terminal UI.
+
+Run without a subcommand to start the service picker and log panel.
+Use muxdev help for the interactive local guide.`,
 		Version: version.String(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(opts, focus)
@@ -60,10 +63,13 @@ func NewRoot() *cobra.Command {
 	root.Flags().StringVar(&focus, "focus", "", "Comma-separated service IDs to run")
 
 	root.AddCommand(newListCmd())
+	root.AddCommand(newLogsCmd())
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newUpdateCmd())
 	root.AddCommand(newInitCmd())
 	root.AddCommand(newConfigureCmd())
+
+	registerHelp(root)
 
 	return root
 }

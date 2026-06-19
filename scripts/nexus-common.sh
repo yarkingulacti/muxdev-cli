@@ -38,6 +38,14 @@ nexus_curl() {
   fi
 }
 
+# Nexus raw repositories reject PUT over an existing asset (HTTP 400).
+nexus_upload_file() {
+  local file="$1"
+  local dest="$2"
+  nexus_curl -X DELETE -o /dev/null "$dest" 2>/dev/null || true
+  nexus_curl --upload-file "$file" "$dest"
+}
+
 nexus_publish_base() {
   local nexus_url="$1"
   local nexus_repo="$2"

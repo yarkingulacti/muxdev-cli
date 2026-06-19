@@ -15,6 +15,7 @@ var ErrAborted = errors.New("aborted")
 
 type Options struct {
 	Cfg        *config.Config
+	ConfigPath string
 	Focus      []string
 	WorkDir    string
 	UpdateHint string
@@ -48,7 +49,7 @@ func Run(opts Options) error {
 		serviceIDs = resolved
 	}
 
-	return runLogs(opts.Cfg, serviceIDs, opts.WorkDir, opts.UpdateHint, opts.Runtime)
+	return runLogs(opts.Cfg, opts.ConfigPath, serviceIDs, opts.WorkDir, opts.UpdateHint, opts.Runtime)
 }
 
 func runPicker(cfg *config.Config, updateHint string) ([]string, error) {
