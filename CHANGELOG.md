@@ -1,29 +1,29 @@
 # Changelog
 
+All notable changes to **muxdev** are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [1.1.0](https://github.com/yarkingulacti/muxdev-cli/compare/v1.0.0...v1.1.0) (2026-06-18)
 
+### Added
 
-### Features
+- Interactive `muxdev configure` wizard to create and edit `muxdev.yaml`
+- `muxdev init` entry point for new projects
+- Local development guide (`docs/local-development.md`)
 
-* **tui:** add interactive muxdev.yaml configure wizard ([f00a297](https://github.com/yarkingulacti/muxdev-cli/commit/f00a297e7b1eed36e044635feae8a2ca9064fdc9))
+## [1.0.0](https://github.com/yarkingulacti/muxdev-cli/releases/tag/v1.0.0) (2026-06-18)
 
+### Added
 
-### Bug Fixes
+- Config-driven local dev stack runner with interactive TUI (`muxdev`)
+- `muxdev.yaml` service definitions: commands, ports, dependencies
+- Service picker, log multiplexing, and `--focus` / `--list` CLI modes
+- Built-in updater (`muxdev update`) with install-method detection
+- Multi-platform release artifacts via Goreleaser (Linux, macOS, Windows; amd64 & arm64)
+- `install.sh` bootstrap script with SHA-256 verification
+- Release Please + SemVer release pipeline
 
-* **ci:** checkout release tag on manual dispatch ([620dc45](https://github.com/yarkingulacti/muxdev-cli/commit/620dc45b0d48f9eb62ff63322fe6ea8cb3bdf793))
-* **ci:** release only on master tag from release please ([83db028](https://github.com/yarkingulacti/muxdev-cli/commit/83db0282de136b27efe15a0643e563d9b26d7bd0))
-
-## 1.0.0 (2026-06-18)
-
-
-### Features
-
-* **cli:** add Go TUI runner and release scaffolding ([dec3d5f](https://github.com/yarkingulacti/muxdev-cli/commit/dec3d5fa0ffde37d191c6bc8e7922d3265336a13))
-* **release:** add semver pipeline, updater, and distribution ([962b75b](https://github.com/yarkingulacti/muxdev-cli/commit/962b75b6a33a423b6cac71823d286c17dffcd5b2))
-
-
-### Bug Fixes
-
-* **release:** align release-please tags with goreleaser v* ([4647c67](https://github.com/yarkingulacti/muxdev-cli/commit/4647c675f98236dd3e99bc26488d92fd477c6663))
-
-## Changelog
+[1.1.0]: https://github.com/yarkingulacti/muxdev-cli/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/yarkingulacti/muxdev-cli/releases/tag/v1.0.0

@@ -1,15 +1,21 @@
-name: Release
+# Release publishing moved to release-please.yml (runs after Release Please creates the tag).
+# This file is kept for manual recovery only.
+
+name: Release (manual)
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing v* tag to publish (must exist on master)
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-manual-${{ github.event.inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -18,7 +24,7 @@ jobs:
     steps:
       - name: Validate SemVer tag
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ github.event.inputs.tag }}"
           if ! [[ "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)(\.[0-9]+)?)?$ ]]; then
             echo "Invalid semver tag: $TAG"
             exit 1
@@ -26,7 +32,7 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.event.inputs.tag }}
           fetch-depth: 0
 
       - name: Verify tag commit is on master
@@ -42,10 +48,15 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Prepare release notes
+        run: |
+          chmod +x scripts/release-notes.sh
+          ./scripts/release-notes.sh "${{ github.event.inputs.tag }}" > release-notes.md
+
       - uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
-          args: release --clean
+          args: release --clean --release-notes-file=release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
@@ -59,23 +70,11 @@ jobs:
           DIST_DIR: dist
         run: |
           if [ -z "${NEXUS_URL:-}" ] || [ -z "${NEXUS_AUTH:-}" ]; then
-            echo "::error::Set GitHub secrets NEXUS_URL and NEXUS_AUTH before tagging a release"
+            echo "::error::Set GitHub secrets NEXUS_URL and NEXUS_AUTH"
             exit 1
           fi
           NEXUS_REPO="${NEXUS_REPO:-muxdev-releases}"
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ github.event.inputs.tag }}"
           chmod +x scripts/upload-nexus.sh scripts/verify-nexus.sh
           ./scripts/upload-nexus.sh "$TAG"
           ./scripts/verify-nexus.sh
-          UPDATE_URL="${NEXUS_URL%/}/repository/${NEXUS_REPO}/${NEXUS_CHANNEL}/latest.json"
-          {
-            echo "## Nexus update"
-            echo ""
-            echo "Self-update manifest published:"
-            echo "\`$UPDATE_URL\`"
-            echo ""
-            echo '```bash'
-            echo "export MUXDEV_UPDATE_URL=\"$UPDATE_URL\""
-            echo "muxdev update --check"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"

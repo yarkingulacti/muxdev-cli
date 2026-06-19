@@ -40,11 +40,7 @@ snapshot:
   name_template: "{{ incpatch .Version }}-next"
 
 changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^chore:"
+  disable: true
 
 brews:
   - name: muxdev
@@ -82,3 +78,4 @@ release:
     name: muxdev-cli
   draft: false
   prerelease: auto
+  mode: keep-existing

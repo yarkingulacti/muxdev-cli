@@ -409,7 +409,8 @@ flowchart LR
 |-------|----------|--------|
 | Push to `master` | `release-please.yml` | Opens/updates release PR |
 | Merge release PR to `master` | Release Please | Creates `v*` tag on `master` |
-| Push `v*` tag (from master) | `release.yml` | GitHub Release + binaries |
+| Push `v*` tag (from master) | `release-please.yml` publish job | Goreleaser binaries + Nexus (after Release Please) |
+| Manual republish | `release.yml` (`workflow_dispatch`) | Emergency Goreleaser + Nexus for an existing tag |
 | GitHub Release published | `packages.yml` | Packaging validation |
 
 **Not allowed**
@@ -426,8 +427,8 @@ flowchart LR
 |----------|---------|---------|
 | `ci.yml` | push/PR to `dev` or `master` | test + build matrix |
 | `pr-policy.yml` | PR to `dev` or `master` | enforce feature→dev→master |
-| `release-please.yml` | push to `master` | open/update Release Please PR |
-| `release.yml` | push `v*` tag on `master` | Goreleaser publish |
+| `release-please.yml` | push to `master` | Release Please PR; on merge → tag + Goreleaser + Nexus |
+| `release.yml` | manual dispatch | republish an existing tag (recovery) |
 | `packages.yml` | GitHub Release published | validate packaging templates |
 
 ### Step-by-step (steady state)
@@ -438,8 +439,8 @@ flowchart LR
    - `CHANGELOG.md` section
    - version bump in release manifest
 4. Maintainer reviews changelog, merges Release PR to `master`
-5. Release Please creates git tag `vX.Y.Z` on `master`
-6. Tag push triggers **Goreleaser** (`release.yml`)
+5. Release Please creates git tag `vX.Y.Z` on `master` and opens the GitHub Release with notes from `CHANGELOG.md`
+6. **Release Please workflow** runs Goreleaser + Nexus upload on the same tag (no raw git-log release notes)
 7. **packages.yml** runs after release is published
 8. Smoke test:
    - `install.sh` against new release
