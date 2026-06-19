@@ -11,7 +11,7 @@
         { "type": "feat", "section": "Added" },
         { "type": "fix", "section": "Fixed" },
         { "type": "perf", "section": "Performance" },
-        { "type": "docs", "section": "Documentation" },
+        { "type": "docs", "section": "Documentation", "hidden": true },
         { "type": "refactor", "section": "Changed", "hidden": true },
         { "type": "test", "section": "Tests", "hidden": true },
         { "type": "build", "section": "Build", "hidden": true },

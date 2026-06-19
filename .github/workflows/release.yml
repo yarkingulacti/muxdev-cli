@@ -53,13 +53,19 @@ jobs:
           chmod +x scripts/release-notes.sh
           ./scripts/release-notes.sh "${{ github.event.inputs.tag }}" > release-notes.md
 
-      - uses: goreleaser/goreleaser-action@v6
-        with:
-          version: latest
-          args: release --clean --release-notes-file=release-notes.md
+      - name: Install Goreleaser
+        run: go install github.com/goreleaser/goreleaser/v2@latest
+
+      - name: Goreleaser release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          ARGS=(release --clean --release-notes-file=release-notes.md)
+          if [ -z "${TAP_GITHUB_TOKEN:-}" ]; then
+            ARGS+=(--skip=brew --skip=scoop)
+          fi
+          "$(go env GOPATH)/bin/goreleaser" "${ARGS[@]}"
 
       - name: Upload to Nexus
         env:

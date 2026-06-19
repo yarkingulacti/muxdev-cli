@@ -67,13 +67,20 @@ jobs:
           echo "Release notes:" >> "$GITHUB_STEP_SUMMARY"
           cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: goreleaser/goreleaser-action@v6
-        with:
-          version: latest
-          args: release --clean --release-notes-file=release-notes.md
+      - name: Install Goreleaser
+        run: go install github.com/goreleaser/goreleaser/v2@latest
+
+      - name: Goreleaser release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+        run: |
+          ARGS=(release --clean --release-notes-file=release-notes.md)
+          if [ -z "${TAP_GITHUB_TOKEN:-}" ]; then
+            echo "TAP_GITHUB_TOKEN not set — skipping homebrew/scoop publish"
+            ARGS+=(--skip=brew --skip=scoop)
+          fi
+          goreleaser "${ARGS[@]}"
 
       - name: Upload to Nexus
         env:
