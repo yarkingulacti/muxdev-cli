@@ -2,7 +2,7 @@
 
 ## Gereksinimler
 
-- Go 1.23+ ([go.mod](../go.mod) sürümüne bak)
+- Go 1.26+ ([go.mod](../go.mod) sürümüne bak)
 - Git
 
 ## Başlangıç
@@ -18,8 +18,11 @@ go test ./...
 En pratik yol — her kod değişikliğinde otomatik derlenir:
 
 ```bash
+air          # tmp/muxdev derler ve /tmp/muxdev ile senkronlar
 ./bin/muxdev --version
 ```
+
+`./bin/muxdev` önce `/tmp/muxdev` (air), sonra `tmp/muxdev`, yoksa `go run` kullanır.
 
 Daha hızlı tekrar çalıştırma için binary build:
 
@@ -69,5 +72,10 @@ Detay: [git-workflow.md](git-workflow.md)
 ## Notlar
 
 - Local build `muxdev version` → `dev (local build)` gösterir
+- Public repo: `curl -fsSL https://raw.githubusercontent.com/yarkingulacti/muxdev-cli/master/scripts/install.sh | bash`
+- `muxdev update` varsayılan olarak GitHub Releases kullanır (ek env gerekmez)
+- Opsiyonel Nexus güncellemeleri: `MUXDEV_UPDATE_URL=https://apps.developeryarkin.com/repository/muxdev-releases/stable/latest.json muxdev update --check`
+- Nexus publish: `cp .env.example .env` → `NEXUS_AUTH` doldur → `./scripts/release-nexus.sh v1.0.0`
+- Nexus test: `./scripts/test-nexus.sh`
 - TUI ve `init`/`configure` gerçek terminal (TTY) ister
 - CI/pipe testleri için `--no-interactive` kullan

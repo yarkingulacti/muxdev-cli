@@ -28,6 +28,18 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Nexus automation tests
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x scripts/*.sh scripts/nexus-manifest.py
+          ./scripts/test-nexus.sh
+
+      - name: install.sh resolves latest release
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x scripts/install.sh
+          CHECK_ONLY=1 ./scripts/install.sh
+
       - name: Build
         run: go build -o muxdev${{ matrix.os == 'windows-latest' && '.exe' || '' }} ./cmd/muxdev
 
@@ -35,4 +47,4 @@ jobs:
         shell: bash
         run: |
           ./muxdev${{ matrix.os == 'windows-latest' && '.exe' || '' }} --version
-          ./muxdev${{ matrix.os == 'windows-latest' && '.exe' || '' }} --list --config testdata/muxdev.yaml
+          ./muxdev${{ matrix.os == 'windows-latest' && '.exe' || '' }} list --config testdata/muxdev.yaml

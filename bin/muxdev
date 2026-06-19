@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
-# Developer wrapper — builds and runs the Go CLI from the repo root.
+# Developer wrapper — prefers the air-built binary when available.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-exec go run "${ROOT}/cmd/muxdev" "$@"
+DEV_BIN="/tmp/muxdev"
+LOCAL_BIN="$ROOT/tmp/muxdev"
+
+if [[ -x "$DEV_BIN" ]]; then
+	exec "$DEV_BIN" "$@"
+fi
+if [[ -x "$LOCAL_BIN" ]]; then
+	exec "$LOCAL_BIN" "$@"
+fi
+
+exec go run -C "$ROOT" ./cmd/muxdev "$@"

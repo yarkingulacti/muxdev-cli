@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -13,6 +14,7 @@ const DefaultFilename = "muxdev.yaml"
 type Config struct {
 	Name     string             `yaml:"name"`
 	Subtitle string             `yaml:"subtitle"`
+	Runtime  string             `yaml:"runtime,omitempty"`
 	Services map[string]Service `yaml:"services"`
 }
 
@@ -86,6 +88,10 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	if _, err := c.ResolvedRuntime(""); err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+
 	return nil
 }
 
@@ -152,6 +158,31 @@ func (c *Config) ResolveServices(focus []string) ([]string, error) {
 	return topologicalSort(subset)
 }
 
+// OrderForStart returns service IDs with dependencies first.
+// When the graph cannot be topologically sorted, falls back to stable ID order.
+func OrderForStart(ids []string, services map[string]Service) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	subset := make(map[string]Service, len(ids))
+	for _, id := range ids {
+		if svc, ok := services[id]; ok {
+			subset[id] = svc
+		}
+	}
+	sorted, err := topologicalSort(subset)
+	if err != nil {
+		return stablePriorityOrder(ids)
+	}
+	return sorted
+}
+
+func stablePriorityOrder(ids []string) []string {
+	out := append([]string(nil), ids...)
+	slices.Sort(out)
+	return out
+}
+
 func topologicalSort(services map[string]Service) ([]string, error) {
 	inDegree := make(map[string]int, len(services))
 	dependents := make(map[string][]string, len(services))
@@ -175,6 +206,7 @@ func topologicalSort(services map[string]Service) ([]string, error) {
 			queue = append(queue, id)
 		}
 	}
+	slices.Sort(queue)
 
 	sorted := make([]string, 0, len(services))
 	for len(queue) > 0 {
@@ -188,6 +220,7 @@ func topologicalSort(services map[string]Service) ([]string, error) {
 				queue = append(queue, child)
 			}
 		}
+		slices.Sort(queue)
 	}
 
 	if len(sorted) != len(services) {

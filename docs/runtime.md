@@ -20,7 +20,7 @@ muxdev is implemented in **Go** as a single cross-platform binary.
 
 ## Reference implementation
 
-The Bash TUI in [voice-synt](https://github.com/yarkingulacti/voice-synt) (`scripts/lib/dev-*.sh`) is the behavioral reference. It is not shipped; behavior is ported into Go.
+The original Bash TUI prototype (service picker, log multiplexing, shutdown) is the behavioral reference. It is not shipped; behavior is ported into Go.
 
 ## Platform notes
 
@@ -49,4 +49,4 @@ go build -o muxdev ./cmd/muxdev
 - [x] Goreleaser + GitHub Actions (linux/macos/windows)
 - [x] Install script (`scripts/install.sh`)
 - [ ] Homebrew / Scoop manifests
-- [ ] voice-synt consumer integration
+- [x] Example consumer project integration

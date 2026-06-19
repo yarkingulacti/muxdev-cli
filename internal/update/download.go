@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/yarkingulacti/muxdev-cli/internal/version"
 )
 
 func DownloadAsset(ctx context.Context, asset Asset, destPath string) error {
@@ -18,7 +20,7 @@ func DownloadAsset(ctx context.Context, asset Asset, destPath string) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", userAgent)
+	setRequestHeaders(req, version.Short())
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -142,7 +144,7 @@ func DownloadChecksums(ctx context.Context, release Release) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", userAgent)
+	setRequestHeaders(req, version.Short())
 
 	resp, err := httpClient.Do(req)
 	if err != nil {

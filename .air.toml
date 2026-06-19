@@ -1,0 +1,13 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  # Build into tmp_dir first, then install to the shared dev binary path.
+  cmd = "go build -o ./tmp/muxdev ./cmd/muxdev && install -m 0755 ./tmp/muxdev /tmp/muxdev"
+  entrypoint = ["/tmp/muxdev", "--version"]
+  include_ext = ["go"]
+  exclude_dir = ["tmp", "vendor", "dist", ".git"]
+  stop_on_error = true
+
+[log]
+  time = false

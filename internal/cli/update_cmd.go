@@ -21,6 +21,7 @@ func newUpdateCmd() *cobra.Command {
 		target       string
 		channel      string
 		applyPending bool
+		updateURL    string
 	)
 
 	cmd := &cobra.Command{
@@ -35,8 +36,9 @@ func newUpdateCmd() *cobra.Command {
 			defer cancel()
 
 			result, err := update.Check(ctx, update.CheckOptions{
-				Channel: update.Channel(channel),
-				Target:  target,
+				Channel:     update.Channel(channel),
+				Target:      target,
+				ManifestURL: updateURL,
 			})
 			if err != nil {
 				return err
@@ -51,21 +53,16 @@ func newUpdateCmd() *cobra.Command {
 
 			printUpdateResult(result)
 
-			if checkOnly {
-				if result.UpdateAvailable {
-					return exitError{code: 2, msg: "update available"}
-				}
-				return nil
-			}
-
 			if !result.UpdateAvailable {
-				fmt.Println("Already up to date.")
 				return nil
 			}
 
 			if !result.InstallMethod.SupportsSelfUpdate() {
 				fmt.Printf("Installed via %s. Run: %s\n", result.InstallMethod, result.InstallMethod.UpgradeHint(result.Latest))
-				return exitError{code: 2, msg: "use package manager to update"}
+				if checkOnly && !isTerminal(os.Stdin) {
+					return exitError{code: 2, msg: "use package manager to update"}
+				}
+				return nil
 			}
 
 			if version.IsDev() {
@@ -73,16 +70,16 @@ func newUpdateCmd() *cobra.Command {
 				return nil
 			}
 
-			if !yes && !confirm("Apply update to "+result.Latest+"?") {
+			interactive := isTerminal(os.Stdin) && !yes
+			if shouldExitCheckOnly(checkOnly, yes, interactive) {
+				return exitError{code: 2, msg: "update available"}
+			}
+
+			if !yes && !confirmUpdate(result.Latest) {
 				return nil
 			}
 
-			goos, goarch := update.CurrentPlatform()
-			assetName := update.PlatformAssetName(result.Latest, goos, goarch)
-			if err := update.Apply(ctx, update.ApplyOptions{
-				Release:   result.Release,
-				AssetName: assetName,
-			}); err != nil {
+			if err := applyUpdate(ctx, result); err != nil {
 				return err
 			}
 
@@ -91,22 +88,47 @@ func newUpdateCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&checkOnly, "check", false, "Check for updates only")
+	cmd.Flags().BoolVar(&checkOnly, "check", false, "Check for updates (prompts to install when interactive)")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Apply without confirmation")
 	cmd.Flags().StringVar(&target, "version", "", "Target version tag (e.g. v0.2.0)")
 	cmd.Flags().StringVar(&channel, "channel", string(update.ChannelStable), "Release channel: stable or prerelease")
 	cmd.Flags().BoolVar(&applyPending, "apply-pending", false, "Apply a staged Windows update")
+	cmd.Flags().StringVar(&updateURL, "update-url", "", "Manifest URL (overrides MUXDEV_UPDATE_URL)")
 
 	return cmd
 }
 
 func printUpdateResult(result update.Result) {
 	fmt.Printf("muxdev %s (installed via %s)\n", strings.TrimPrefix(result.Current, "v"), result.InstallMethod)
+	if result.ManifestURL != "" {
+		fmt.Printf("Update source: %s\n", result.ManifestURL)
+	}
 	if result.UpdateAvailable {
 		fmt.Printf("Update available: %s\n", result.Latest)
 	} else {
 		fmt.Println("Up to date.")
 	}
+}
+
+func shouldExitCheckOnly(checkOnly, yes, interactive bool) bool {
+	return checkOnly && !yes && !interactive
+}
+
+func applyUpdate(ctx context.Context, result update.Result) error {
+	goos, goarch := update.CurrentPlatform()
+	assetName := update.PlatformAssetName(result.Latest, goos, goarch)
+	return update.Apply(ctx, update.ApplyOptions{
+		Release:   result.Release,
+		AssetName: assetName,
+	})
+}
+
+func confirmUpdate(latest string) bool {
+	return confirm(confirmUpdatePrompt(latest))
+}
+
+func confirmUpdatePrompt(latest string) string {
+	return fmt.Sprintf("A new update is available (%s). Would you like to install it?", latest)
 }
 
 func confirm(prompt string) bool {

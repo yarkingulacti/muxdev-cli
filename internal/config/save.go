@@ -34,16 +34,15 @@ func Format(cfg *Config) ([]byte, error) {
 
 func NormalizeServiceID(raw string) (string, error) {
 	id := strings.TrimSpace(strings.ToLower(raw))
-	id = strings.ReplaceAll(id, " ", "_")
-	id = strings.ReplaceAll(id, "-", "_")
+	id = strings.ReplaceAll(id, " ", "-")
 	if id == "" {
 		return "", fmt.Errorf("service id is required")
 	}
 	for _, r := range id {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
 			continue
 		}
-		return "", fmt.Errorf("service id %q: use lowercase letters, numbers, underscores", raw)
+		return "", fmt.Errorf("service id %q: use lowercase letters, numbers, and hyphens", raw)
 	}
 	if id[0] >= '0' && id[0] <= '9' {
 		return "", fmt.Errorf("service id must start with a letter")

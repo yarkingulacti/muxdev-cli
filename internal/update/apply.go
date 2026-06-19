@@ -22,7 +22,7 @@ func Apply(ctx context.Context, opts ApplyOptions) error {
 		return err
 	}
 
-	tmpDir, err := os.MkdirTemp("", "muxdev-update-*")
+	tmpDir, err := os.MkdirTemp(filepath.Dir(exe), "muxdev-update-*")
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -44,9 +45,12 @@ func NewRoot() *cobra.Command {
 	opts := defaultOptions()
 
 	root := &cobra.Command{
-		Use:     "muxdev",
-		Short:   "Multiplexed dev stack runner",
-		Long:    "Config-driven local development orchestrator with an interactive terminal UI.",
+		Use:   "muxdev",
+		Short: "Multiplexed dev stack runner",
+		Long: `Config-driven local development orchestrator with an interactive terminal UI.
+
+Run without a subcommand to start the service picker and log panel.
+Use muxdev help for the interactive local guide.`,
 		Version: version.String(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(opts, focus)
@@ -54,14 +58,19 @@ func NewRoot() *cobra.Command {
 	}
 
 	root.Flags().StringVarP(&opts.ConfigPath, "config", "c", "", "Path to muxdev.yaml (default: search upward from cwd)")
-	root.Flags().BoolVar(&opts.List, "list", false, "List configured services and exit")
 	root.Flags().BoolVar(&opts.NoInteractive, "no-interactive", false, "Run without the interactive TUI")
+	root.Flags().StringVar(&opts.Runtime, "runtime", "", "Start mode: sync (sequential, dependency order) or async (parallel)")
 	root.Flags().StringVar(&focus, "focus", "", "Comma-separated service IDs to run")
 
+	root.AddCommand(newListCmd())
+	root.AddCommand(newLogsCmd())
 	root.AddCommand(newVersionCmd())
 	root.AddCommand(newUpdateCmd())
 	root.AddCommand(newInitCmd())
 	root.AddCommand(newConfigureCmd())
+	root.AddCommand(newRemoveCmd())
+
+	registerHelp(root)
 
 	return root
 }
@@ -83,7 +92,8 @@ func ExitCode(err error) int {
 	if err == nil {
 		return 0
 	}
-	if ee, ok := err.(exitError); ok {
+	var ee exitError
+	if errors.As(err, &ee) {
 		return ee.code
 	}
 	return 1

@@ -9,15 +9,18 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/yarkingulacti/muxdev-cli/internal/config"
+	"github.com/yarkingulacti/muxdev-cli/internal/version"
 )
 
 var ErrAborted = errors.New("aborted")
 
 type Options struct {
 	Cfg        *config.Config
+	ConfigPath string
 	Focus      []string
 	WorkDir    string
 	UpdateHint string
+	Runtime    config.Runtime
 }
 
 var (
@@ -47,7 +50,7 @@ func Run(opts Options) error {
 		serviceIDs = resolved
 	}
 
-	return runLogs(opts.Cfg, serviceIDs, opts.WorkDir, opts.UpdateHint)
+	return runLogs(opts.Cfg, opts.ConfigPath, serviceIDs, opts.WorkDir, opts.UpdateHint, opts.Runtime)
 }
 
 func runPicker(cfg *config.Config, updateHint string) ([]string, error) {
@@ -158,7 +161,7 @@ func (m pickerModel) View() string {
 		return "Loading..."
 	}
 
-	header := renderHeader(m.cfg, m.width, "Select services to run")
+	header := renderRuntimeHeader(m.cfg, m.width, "Select services to run")
 	var b strings.Builder
 	b.WriteString(header)
 	b.WriteString("\n")
@@ -193,14 +196,33 @@ func (m pickerModel) View() string {
 }
 
 func renderHeader(cfg *config.Config, width int, status string) string {
+	return renderHeaderWithVersion(cfg, width, status, false)
+}
+
+func renderRuntimeHeader(cfg *config.Config, width int, status string) string {
+	return renderHeaderWithVersion(cfg, width, status, true)
+}
+
+func renderHeaderWithVersion(cfg *config.Config, width int, status string, showVersion bool) string {
 	title := titleStyle.Render(cfg.Name)
 	subtitle := ""
 	if cfg.Subtitle != "" {
 		subtitle = subtitleStyle.Render(" — " + cfg.Subtitle)
 	}
+	if showVersion {
+		status = appendRuntimeStatusMeta(status)
+	}
 	statusLine := mutedStyle.Render(status)
 	content := fmt.Sprintf("%s%s\n%s", title, subtitle, statusLine)
 	return cardStyle.Width(min(width-2, 72)).Render(content)
+}
+
+func appendRuntimeStatusMeta(status string) string {
+	versionLabel := "muxdev " + version.Short()
+	if status == "" {
+		return versionLabel
+	}
+	return status + "  ·  " + versionLabel
 }
 
 func min(a, b int) int {
