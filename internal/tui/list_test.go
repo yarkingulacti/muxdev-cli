@@ -56,6 +56,9 @@ func TestRenderServiceListExpandsPortFromEnv(t *testing.T) {
 	if !strings.Contains(out, "4000") {
 		t.Fatalf("RenderServiceList() missing expanded port 4000:\n%s", out)
 	}
+	if !strings.Contains(out, ".env") {
+		t.Fatalf("RenderServiceList() missing port source .env:\n%s", out)
+	}
 }
 
 func TestRenderServiceListSingleService(t *testing.T) {

@@ -11,10 +11,9 @@ import (
 const DefaultFilename = "muxdev.yaml"
 
 type Config struct {
-	Name      string             `yaml:"name"`
-	Subtitle  string             `yaml:"subtitle"`
-	EnvSource []string           `yaml:"env_source"`
-	Services  map[string]Service `yaml:"services"`
+	Name     string             `yaml:"name"`
+	Subtitle string             `yaml:"subtitle"`
+	Services map[string]Service `yaml:"services"`
 }
 
 type Service struct {

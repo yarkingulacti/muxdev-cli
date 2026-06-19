@@ -32,11 +32,12 @@ func renderServiceTable(cfg *config.Config, ids []string, workDir string, width 
 	rows := make([][]string, 0, len(ids))
 	for _, id := range ids {
 		svc := cfg.Services[id]
-		env := config.ListingEnv(workDir, cfg.EnvSource, svc.Env)
+		resolved := config.ResolveServicePort(cfg, workDir, svc)
 		rows = append(rows, []string{
 			id,
 			svc.Label,
-			emptyDash(config.ExpandEnv(svc.Port, env)),
+			emptyDash(resolved.Port),
+			emptyDash(resolved.Source),
 			emptyDash(strings.Join(svc.DependsOn, ", ")),
 			svc.Command,
 		})
@@ -47,7 +48,7 @@ func renderServiceTable(cfg *config.Config, ids []string, workDir string, width 
 		BorderStyle(mutedStyle).
 		BorderHeader(true).
 		BorderRow(true).
-		Headers("ID", "LABEL", "PORT", "DEPENDS ON", "COMMAND").
+		Headers("ID", "LABEL", "PORT", "FROM", "DEPENDS ON", "COMMAND").
 		Rows(rows...).
 		Width(min(width, 120)).
 		Wrap(true).

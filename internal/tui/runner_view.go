@@ -294,7 +294,7 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.attachPending = true
 			port := m.portConflict.Port
-			return m, attachPortCmd(m.cfg, m.serviceIDs, port)
+			return m, attachPortCmd(m.cfg, m.serviceIDs, m.workDir, port)
 		case "k", "K":
 			if m.killPending || m.portConflict == nil {
 				return m, nil
@@ -580,7 +580,7 @@ func killPortCmd(port int) tea.Cmd {
 	}
 }
 
-func attachPortCmd(cfg *config.Config, serviceIDs []string, port int) tea.Cmd {
+func attachPortCmd(cfg *config.Config, serviceIDs []string, workDir string, port int) tea.Cmd {
 	return func() tea.Msg {
 		proc, err := portkill.ProcessOnPort(port)
 		if err != nil {
@@ -589,7 +589,7 @@ func attachPortCmd(cfg *config.Config, serviceIDs []string, port int) tea.Cmd {
 		return portAttachMsg{
 			port:    port,
 			process: proc,
-			label:   serviceLabelForPort(cfg, serviceIDs, port),
+			label:   serviceLabelForPort(cfg, serviceIDs, workDir, port),
 		}
 	}
 }
@@ -619,11 +619,11 @@ func (m runnerModel) startAttach(pid int, label string) tea.Cmd {
 	}
 }
 
-func serviceLabelForPort(cfg *config.Config, serviceIDs []string, port int) string {
+func serviceLabelForPort(cfg *config.Config, serviceIDs []string, workDir string, port int) string {
 	portStr := strconv.Itoa(port)
 	for _, id := range serviceIDs {
 		svc := cfg.Services[id]
-		if strings.TrimSpace(svc.Port) == portStr {
+		if config.ExpandServicePort(cfg, workDir, svc) == portStr {
 			if strings.TrimSpace(svc.Label) != "" {
 				return svc.Label
 			}

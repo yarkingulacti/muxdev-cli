@@ -2,28 +2,68 @@ package config
 
 import (
 	"bufio"
-	"bytes"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 )
 
 var shellDefaultPattern = regexp.MustCompile(`\$\{([^}:]+):-([^}]*)\}`)
+var portVarPattern = regexp.MustCompile(`\$\{([^}:]+)(?::-([^}]*))?\}`)
+var bareVarPattern = regexp.MustCompile(`\$([A-Za-z_][A-Za-z0-9_]*)`)
 
-// ListingEnv builds the environment used to expand ${VAR} placeholders in muxdev list.
-// OS variables take precedence; then env_source files (bash source); then .env.example; then per-service env.
-func ListingEnv(workDir string, envSource []string, svcEnv map[string]string) map[string]string {
-	env := envFromOS()
-	if workDir != "" {
-		mergeSourcedEnv(env, workDir, envSource)
-	}
-	for key, value := range svcEnv {
-		env[key] = value
-	}
+// ServicePortResolution holds an expanded port and where it was resolved from.
+type ServicePortResolution struct {
+	Port   string
+	Source string
+}
+
+// PortListingEnv builds the environment used to expand port placeholders.
+// Priority (highest first): shell → .env.local → .env → .env.example → commented .env.example → service env.
+func PortListingEnv(workDir string, svcEnv map[string]string) map[string]string {
+	env, _ := PortListingEnvWithSources(workDir, svcEnv)
 	return env
+}
+
+// PortListingEnvWithSources is like PortListingEnv but also returns the winning source per variable.
+func PortListingEnvWithSources(workDir string, svcEnv map[string]string) (map[string]string, map[string]string) {
+	env := make(map[string]string)
+	sources := make(map[string]string)
+	for _, layer := range portEnvLayers(workDir, svcEnv) {
+		for key, value := range layer.data {
+			env[key] = value
+			sources[key] = layer.name
+		}
+	}
+	expandEnvReferences(env)
+	return env, sources
+}
+
+// ListingEnv is an alias for PortListingEnv.
+func ListingEnv(workDir string, svcEnv map[string]string) map[string]string {
+	return PortListingEnv(workDir, svcEnv)
+}
+
+// ExpandServicePort resolves a service port field using layered env sources.
+func ExpandServicePort(cfg *Config, workDir string, svc Service) string {
+	return ResolveServicePort(cfg, workDir, svc).Port
+}
+
+// ResolveServicePort expands a service port and reports where the value came from.
+func ResolveServicePort(_ *Config, workDir string, svc Service) ServicePortResolution {
+	portTpl := strings.TrimSpace(svc.Port)
+	if portTpl == "" {
+		return ServicePortResolution{}
+	}
+	if !containsEnvRef(portTpl) {
+		return ServicePortResolution{Port: portTpl, Source: "muxdev.yaml"}
+	}
+
+	env, sources := PortListingEnvWithSources(workDir, svc.Env)
+	return ServicePortResolution{
+		Port:   ExpandEnv(portTpl, env),
+		Source: resolvePortSource(portTpl, env, sources),
+	}
 }
 
 // ExpandEnv replaces ${VAR}, ${VAR:-default}, and $VAR using env; unknown keys stay as ${KEY}.
@@ -40,120 +80,106 @@ func ExpandEnv(value string, env map[string]string) string {
 	})
 }
 
-func defaultEnvSource(custom []string) []string {
-	if len(custom) > 0 {
-		return custom
+func buildLayeredEnv(layers ...map[string]string) map[string]string {
+	env := make(map[string]string)
+	for _, layer := range layers {
+		for key, value := range layer {
+			env[key] = value
+		}
 	}
-	return []string{".env", ".env.local"}
+	return env
 }
 
-func mergeSourcedEnv(env map[string]string, workDir string, envSource []string) {
-	sources := defaultEnvSource(envSource)
-	fileEnv, err := sourceEnvFiles(workDir, sources)
-	if err != nil || len(fileEnv) == 0 {
-		mergeParsedDotenvFiles(env, workDir, sources)
-	} else {
-		for key, value := range fileEnv {
-			if _, exists := env[key]; !exists {
-				env[key] = value
+type envLayer struct {
+	name string
+	data map[string]string
+}
+
+func portEnvLayers(workDir string, svcEnv map[string]string) []envLayer {
+	layers := []envLayer{{name: "env", data: svcEnv}}
+	if workDir != "" {
+		examplePath := filepath.Join(workDir, ".env.example")
+		layers = append(layers,
+			envLayer{name: ".env.example#", data: envExampleCommented(examplePath)},
+			envLayer{name: ".env.example", data: envExampleExplicit(examplePath)},
+			envLayer{name: ".env", data: parsedEnvFile(workDir, ".env")},
+			envLayer{name: ".env.local", data: parsedEnvFile(workDir, ".env.local")},
+		)
+	}
+	layers = append(layers, envLayer{name: "shell", data: envFromOS()})
+	return layers
+}
+
+func containsEnvRef(value string) bool {
+	return portVarPattern.MatchString(value) || strings.Contains(value, "$")
+}
+
+func resolvePortSource(portTpl string, env map[string]string, sources map[string]string) string {
+	for _, match := range portVarPattern.FindAllStringSubmatch(portTpl, -1) {
+		key := match[1]
+		fallback := match[2]
+		hasDefault := strings.Contains(portTpl, "${"+key+":-")
+
+		if v, ok := env[key]; ok && v != "" {
+			if src, ok := sources[key]; ok {
+				return src
+			}
+		}
+		if hasDefault && fallback != "" {
+			return "default"
+		}
+	}
+
+	for _, match := range bareVarPattern.FindAllStringSubmatch(portTpl, -1) {
+		key := match[1]
+		if v, ok := env[key]; ok && v != "" {
+			if src, ok := sources[key]; ok {
+				return src
 			}
 		}
 	}
 
-	for key, value := range loadEnvExampleFile(filepath.Join(workDir, ".env.example")) {
-		if _, exists := env[key]; !exists {
-			env[key] = value
+	return "?"
+}
+
+func expandEnvReferences(env map[string]string) {
+	for range 8 {
+		changed := false
+		for key, value := range env {
+			expanded := ExpandEnv(value, env)
+			if expanded != value {
+				env[key] = expanded
+				changed = true
+			}
+		}
+		if !changed {
+			break
 		}
 	}
 }
 
-func mergeParsedDotenvFiles(env map[string]string, workDir string, sources []string) {
-	fileEnv := make(map[string]string)
-	for _, name := range sources {
-		mergeParsedEnv(fileEnv, workDir, name)
+func envExampleExplicit(path string) map[string]string {
+	parsed, err := parseEnvFile(path)
+	if err != nil || len(parsed) == 0 {
+		return map[string]string{}
 	}
-	for key, value := range fileEnv {
-		if _, exists := env[key]; !exists {
-			env[key] = value
-		}
-	}
+	return parsed
 }
 
-func sourceEnvFiles(workDir string, sources []string) (map[string]string, error) {
-	if _, err := exec.LookPath("bash"); err != nil {
-		return nil, err
+func envExampleCommented(path string) map[string]string {
+	parsed, err := parseCommentedEnvDefaults(path)
+	if err != nil || len(parsed) == 0 {
+		return map[string]string{}
 	}
-
-	var script bytes.Buffer
-	script.WriteString("cd ")
-	writeShellQuoted(&script, workDir)
-	script.WriteString("\nset -a\n")
-	found := false
-	for _, source := range sources {
-		path, err := resolveEnvSourcePath(workDir, source)
-		if err != nil {
-			continue
-		}
-		if _, err := os.Stat(path); err != nil {
-			continue
-		}
-		found = true
-		script.WriteString("source ")
-		writeShellQuoted(&script, path)
-		script.WriteString("\n")
-	}
-	script.WriteString("set +a\nenv -0\n")
-	if !found {
-		return nil, nil
-	}
-
-	cmd := exec.Command("bash", "-c", script.String())
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-	return parseNullSeparatedEnv(out), nil
+	return parsed
 }
 
-func resolveEnvSourcePath(workDir, rel string) (string, error) {
-	rel = strings.TrimSpace(rel)
-	if rel == "" {
-		return "", fmt.Errorf("empty env source path")
+func parsedEnvFile(workDir, name string) map[string]string {
+	parsed, err := parseEnvFile(filepath.Join(workDir, name))
+	if err != nil || len(parsed) == 0 {
+		return map[string]string{}
 	}
-	if filepath.IsAbs(rel) {
-		return "", fmt.Errorf("absolute env_source paths are not allowed: %s", rel)
-	}
-	clean := filepath.Clean(rel)
-	if clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
-		return "", fmt.Errorf("env_source path escapes project root: %s", rel)
-	}
-	full := filepath.Join(workDir, clean)
-	relToRoot, err := filepath.Rel(workDir, full)
-	if err != nil || strings.HasPrefix(relToRoot, "..") {
-		return "", fmt.Errorf("env_source path escapes project root: %s", rel)
-	}
-	return full, nil
-}
-
-func writeShellQuoted(b *bytes.Buffer, value string) {
-	b.WriteByte('\'')
-	b.WriteString(strings.ReplaceAll(value, "'", `'"\''"`))
-	b.WriteByte('\'')
-}
-
-func parseNullSeparatedEnv(raw []byte) map[string]string {
-	out := make(map[string]string)
-	for part := range bytes.SplitSeq(raw, []byte{0}) {
-		if len(part) == 0 {
-			continue
-		}
-		key, value, ok := bytes.Cut(part, []byte{'='})
-		if !ok || len(key) == 0 {
-			continue
-		}
-		out[string(key)] = string(value)
-	}
-	return out
+	return parsed
 }
 
 func expandShellDefaults(value string, env map[string]string) string {
@@ -178,41 +204,6 @@ func envFromOS() map[string]string {
 			continue
 		}
 		out[key] = value
-	}
-	return out
-}
-
-func mergeParsedEnv(dst map[string]string, workDir, name string) {
-	parsed, err := parseEnvFile(filepath.Join(workDir, name))
-	if err != nil || len(parsed) == 0 {
-		return
-	}
-	for key, value := range parsed {
-		dst[key] = value
-	}
-}
-
-func loadEnvFile(path string) map[string]string {
-	parsed, err := parseEnvFile(path)
-	if err != nil {
-		return nil
-	}
-	return parsed
-}
-
-func loadEnvExampleFile(path string) map[string]string {
-	out := loadEnvFile(path)
-	if out == nil {
-		out = make(map[string]string)
-	}
-	commented, err := parseCommentedEnvDefaults(path)
-	if err != nil {
-		return out
-	}
-	for key, value := range commented {
-		if _, exists := out[key]; !exists {
-			out[key] = value
-		}
 	}
 	return out
 }
