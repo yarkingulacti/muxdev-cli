@@ -3,6 +3,8 @@ package tui
 import (
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/yarkingulacti/muxdev-cli/internal/config"
 )
 
@@ -69,6 +71,64 @@ func TestCopyService(t *testing.T) {
 	}
 	if original.Env["FOO"] != "bar" {
 		t.Fatalf("original.Env[F00] = %q, want bar", original.Env["FOO"])
+	}
+}
+
+func TestHandlePortDiscoverOffersConfirmWhenFound(t *testing.T) {
+	m := &configureModel{currentID: "ui"}
+	_, _ = m.handlePortDiscover(portDiscoverMsg{port: "4321"})
+
+	if m.phase != phaseCfgServicePortConfirm {
+		t.Fatalf("phase = %v, want port confirm", m.phase)
+	}
+	if m.discoveredPort != "4321" {
+		t.Fatalf("discoveredPort = %q, want 4321", m.discoveredPort)
+	}
+}
+
+func TestHandlePortDiscoverFallsBackToManualWhenMissing(t *testing.T) {
+	m := newConfigureModel(ConfigureOptions{})
+	_, cmd := m.handlePortDiscover(portDiscoverMsg{})
+
+	if m.phase != phaseCfgServicePort {
+		t.Fatalf("phase = %v, want manual port entry", m.phase)
+	}
+	if cmd == nil {
+		t.Fatal("expected input focus command")
+	}
+}
+
+func TestHandlePortConfirmRejectOpensManualEntry(t *testing.T) {
+	m := newConfigureModel(ConfigureOptions{})
+	m.phase = phaseCfgServicePortConfirm
+	m.discoveredPort = "4321"
+	m.currentID = "ui"
+	_, cmd := m.handlePortConfirm(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("n")})
+
+	if m.phase != phaseCfgServicePort {
+		t.Fatalf("phase = %v, want manual port entry", m.phase)
+	}
+	if m.discoveredPort != "" {
+		t.Fatalf("discoveredPort = %q, want cleared", m.discoveredPort)
+	}
+	if cmd == nil {
+		t.Fatal("expected input focus command")
+	}
+}
+
+func TestHandlePortConfirmAcceptContinues(t *testing.T) {
+	m := newConfigureModel(ConfigureOptions{})
+	m.phase = phaseCfgServicePortConfirm
+	m.discoveredPort = "4321"
+	m.currentID = "ui"
+	_, _ = m.handlePortConfirm(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+
+	svc, ok := m.services["ui"]
+	if !ok || svc.Port != "4321" {
+		t.Fatalf("saved port = %q, want 4321", svc.Port)
+	}
+	if m.phase != phaseCfgAddAnother {
+		t.Fatalf("phase = %v, want add another after finalize", m.phase)
 	}
 }
 

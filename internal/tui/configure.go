@@ -84,6 +84,7 @@ const (
 	phaseCfgServiceLabel
 	phaseCfgServiceCommand
 	phaseCfgServicePortDiscover
+	phaseCfgServicePortConfirm
 	phaseCfgServicePort
 	phaseCfgServiceDeps
 	phaseCfgServiceMenu
@@ -110,6 +111,7 @@ type configureModel struct {
 	aborted    bool
 
 	portDiscoverNote string
+	discoveredPort   string
 
 	name     string
 	subtitle string
@@ -214,6 +216,8 @@ func (m *configureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleDeps(msg)
 		case phaseCfgAddAnother, phaseCfgConfirm:
 			return m.handleYesNo(msg)
+		case phaseCfgServicePortConfirm:
+			return m.handlePortConfirm(msg)
 		case phaseCfgServicePortDiscover:
 			if msg.String() == "ctrl+c" || msg.String() == "esc" || msg.String() == "q" {
 				m.aborted = true
@@ -378,13 +382,7 @@ func (m *configureModel) advanceFromInput() (tea.Model, tea.Cmd) {
 			return m.returnToServiceEditMenu()
 		}
 		m.currentService.Port = value
-		if len(m.depCandidates()) == 0 {
-			m.finalizeCurrentService()
-			return m.returnAfterServiceSave()
-		}
-		m.depCursor = 0
-		m.depSelected = m.depSelectedForEdit()
-		m.phase = phaseCfgServiceDeps
+		return m.continueAfterPort()
 	default:
 		return m, nil
 	}
@@ -411,16 +409,57 @@ func (m configureModel) discoverPortCmd() tea.Cmd {
 func (m *configureModel) handlePortDiscover(msg portDiscoverMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.portDiscoverNote = "Could not detect port automatically — enter one manually or leave blank."
-	} else if msg.port != "" {
-		m.currentService.Port = msg.port
-		m.portDiscoverNote = fmt.Sprintf("Detected port %s from command output.", msg.port)
-	} else {
-		m.portDiscoverNote = "No port found in command output — enter one manually or leave blank."
+		m.input.SetValue("")
+		m.input.Placeholder = "${PORT} (optional)"
+		return m, m.enterInputPhase(phaseCfgServicePort)
+	}
+	if msg.port != "" {
+		m.discoveredPort = msg.port
+		m.enterMenuPhase(phaseCfgServicePortConfirm)
+		return m, nil
 	}
 
-	m.input.SetValue(m.currentService.Port)
+	m.portDiscoverNote = "No port found in command output — enter one manually or leave blank."
+	m.input.SetValue("")
 	m.input.Placeholder = "${PORT} (optional)"
 	return m, m.enterInputPhase(phaseCfgServicePort)
+}
+
+func (m *configureModel) handlePortConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q":
+		m.aborted = true
+		return m, tea.Quit
+	case "esc":
+		m.discoveredPort = ""
+		m.portDiscoverNote = "Enter port manually — leave blank to skip."
+		m.input.SetValue("")
+		m.input.Placeholder = "${PORT} (optional)"
+		return m, m.enterInputPhase(phaseCfgServicePort)
+	case "y", "Y", "enter":
+		m.currentService.Port = m.discoveredPort
+		m.discoveredPort = ""
+		m.portDiscoverNote = ""
+		return m.continueAfterPort()
+	case "n", "N":
+		m.discoveredPort = ""
+		m.portDiscoverNote = "Enter port manually — leave blank to skip."
+		m.input.SetValue("")
+		m.input.Placeholder = "${PORT} (optional)"
+		return m, m.enterInputPhase(phaseCfgServicePort)
+	}
+	return m, nil
+}
+
+func (m *configureModel) continueAfterPort() (tea.Model, tea.Cmd) {
+	if len(m.depCandidates()) == 0 {
+		m.finalizeCurrentService()
+		return m.returnAfterServiceSave()
+	}
+	m.depCursor = 0
+	m.depSelected = m.depSelectedForEdit()
+	m.enterMenuPhase(phaseCfgServiceDeps)
+	return m, nil
 }
 
 func (m *configureModel) finalizeCurrentService() {
@@ -1145,6 +1184,10 @@ func (m configureModel) View() string {
 		b.WriteString(fmt.Sprintf("Save configuration to %s?\n\n", m.outputPath))
 		b.WriteString(mutedStyle.Render("You can edit this file later with `muxdev configure`.\n\n"))
 		b.WriteString(helpStyle.Render("y save  n cancel"))
+	case phaseCfgServicePortConfirm:
+		b.WriteString(fmt.Sprintf("Detected port %s for %q.\n\n", m.discoveredPort, m.currentID))
+		b.WriteString("Use this port?\n\n")
+		b.WriteString(helpStyle.Render("y yes  n enter manually  esc enter manually"))
 	case phaseCfgServicePortDiscover:
 		b.WriteString(fmt.Sprintf("Running %q to detect its port...\n\n", m.currentService.Command))
 		b.WriteString(mutedStyle.Render("This starts the dev command briefly and scans logs for localhost URLs.\n"))
@@ -1264,6 +1307,8 @@ func (m configureModel) phaseTitle() string {
 		return "Command"
 	case phaseCfgServicePortDiscover:
 		return "Port discovery"
+	case phaseCfgServicePortConfirm:
+		return "Port discovery"
 	case phaseCfgServicePort:
 		return "Port"
 	case phaseCfgServiceDeps:
@@ -1328,7 +1373,7 @@ func (m configureModel) phaseHint() string {
 	case phaseCfgServiceCommand:
 		return "e.g. npm run dev, go run ./cmd/api, docker compose up."
 	case phaseCfgServicePort:
-		return "Confirm or edit the detected port — leave blank to skip."
+		return "Enter a port number or template — leave blank to skip."
 	default:
 		return ""
 	}
