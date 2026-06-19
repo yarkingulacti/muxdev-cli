@@ -61,7 +61,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
         run: |
-          ARGS=(release --clean --release-notes-file=release-notes.md)
+          ARGS=(release --clean --release-notes=release-notes.md)
           if [ -z "${TAP_GITHUB_TOKEN:-}" ]; then
             ARGS+=(--skip=brew --skip=scoop)
           fi
