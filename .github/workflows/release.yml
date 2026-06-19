@@ -55,13 +55,27 @@ jobs:
           NEXUS_URL: ${{ secrets.NEXUS_URL }}
           NEXUS_REPO: ${{ secrets.NEXUS_REPO }}
           NEXUS_AUTH: ${{ secrets.NEXUS_AUTH }}
+          NEXUS_CHANNEL: stable
           DIST_DIR: dist
         run: |
-          if [ -z "${NEXUS_URL:-}" ]; then
-            echo "Skipping Nexus upload (NEXUS_URL secret not set)"
-            exit 0
+          if [ -z "${NEXUS_URL:-}" ] || [ -z "${NEXUS_AUTH:-}" ]; then
+            echo "::error::Set GitHub secrets NEXUS_URL and NEXUS_AUTH before tagging a release"
+            exit 1
           fi
+          NEXUS_REPO="${NEXUS_REPO:-muxdev-releases}"
           TAG="${GITHUB_REF_NAME}"
           chmod +x scripts/upload-nexus.sh scripts/verify-nexus.sh
           ./scripts/upload-nexus.sh "$TAG"
           ./scripts/verify-nexus.sh
+          UPDATE_URL="${NEXUS_URL%/}/repository/${NEXUS_REPO}/${NEXUS_CHANNEL}/latest.json"
+          {
+            echo "## Nexus update"
+            echo ""
+            echo "Self-update manifest published:"
+            echo "\`$UPDATE_URL\`"
+            echo ""
+            echo '```bash'
+            echo "export MUXDEV_UPDATE_URL=\"$UPDATE_URL\""
+            echo "muxdev update --check"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

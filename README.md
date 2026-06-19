@@ -106,6 +106,8 @@ Verify an existing publish:
 ./scripts/test-nexus.sh --live   # verify remote latest.json
 ```
 
+**GitHub Releases:** pushing a `v*` tag runs `.github/workflows/release.yml` (Goreleaser + Nexus upload + verify). Required repository secrets: `NEXUS_URL`, `NEXUS_AUTH`, and optionally `NEXUS_REPO`. After the workflow finishes, `MUXDEV_UPDATE_URL` above points at the new `latest.json`.
+
 Package manager installs should use their native upgrade commands (`brew upgrade`, `scoop update`, `winget upgrade`).
 
 ## Usage
