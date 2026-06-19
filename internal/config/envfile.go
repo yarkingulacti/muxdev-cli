@@ -44,6 +44,12 @@ func ListingEnv(workDir string, svcEnv map[string]string) map[string]string {
 	return PortListingEnv(workDir, svcEnv)
 }
 
+// ServiceRunEnv returns env vars for starting a service process.
+// Resolution order matches port listing: service env < .env files < current shell.
+func ServiceRunEnv(workDir string, svc Service) map[string]string {
+	return PortListingEnv(workDir, svc.Env)
+}
+
 // ExpandServicePort resolves a service port field using layered env sources.
 func ExpandServicePort(cfg *Config, workDir string, svc Service) string {
 	return ResolveServicePort(cfg, workDir, svc).Port

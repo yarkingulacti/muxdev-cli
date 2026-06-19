@@ -52,6 +52,11 @@ func run(opts Options, focus string) error {
 	focusIDs := parseFocus(focus)
 	interactive := !opts.NoInteractive && isTerminal(os.Stdout)
 
+	runtime, err := cfg.ResolvedRuntime(opts.Runtime)
+	if err != nil {
+		return err
+	}
+
 	if interactive {
 		hint := ""
 		if update.ShouldCheckOnStart(24 * time.Hour) {
@@ -63,6 +68,7 @@ func run(opts Options, focus string) error {
 			Focus:      focusIDs,
 			WorkDir:    workDir,
 			UpdateHint: hint,
+			Runtime:    runtime,
 		})
 		if errors.Is(err, tui.ErrAborted) {
 			return nil
@@ -75,7 +81,7 @@ func run(opts Options, focus string) error {
 		return err
 	}
 
-	r := runner.New(cfg, serviceIDs)
+	r := runner.New(cfg, serviceIDs, runtime)
 	return r.Run(runner.Context{
 		WorkDir: workDir,
 		Stdout:  os.Stdout,

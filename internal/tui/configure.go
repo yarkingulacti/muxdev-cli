@@ -151,15 +151,15 @@ func RunConfigure(opts ConfigureOptions) error {
 		model.subtitle = cfg.Subtitle
 		model.services = cfg.Services
 		model.fromServiceMenu = true
-		model.phase = phaseCfgRootMenu
+		model.enterMenuPhase(phaseCfgRootMenu)
 	}
 
-	p := tea.NewProgram(model, tea.WithAltScreen())
+	p := tea.NewProgram(&model, tea.WithAltScreen())
 	final, err := p.Run()
 	if err != nil {
 		return err
 	}
-	m := final.(configureModel)
+	m := final.(*configureModel)
 	if m.aborted {
 		return ErrAborted
 	}
@@ -171,7 +171,6 @@ func RunConfigure(opts ConfigureOptions) error {
 
 func newConfigureModel(opts ConfigureOptions) configureModel {
 	ti := textinput.New()
-	ti.Focus()
 	ti.CharLimit = 256
 	ti.Width = 50
 
@@ -188,11 +187,14 @@ func newConfigureModel(opts ConfigureOptions) configureModel {
 	}
 }
 
-func (m configureModel) Init() tea.Cmd {
-	return textinput.Blink
+func (m *configureModel) Init() tea.Cmd {
+	if configureInputPhase(m.phase) {
+		return textinput.Blink
+	}
+	return nil
 }
 
-func (m configureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *configureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case portDiscoverMsg:
 		return m.handlePortDiscover(msg)
@@ -232,22 +234,20 @@ func (m configureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m configureModel) handleWelcome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "enter", " ":
-		m.phase = phaseCfgName
+func (m *configureModel) handleWelcome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case configureKeyEnter(msg):
 		m.input.SetValue(m.name)
 		m.input.Placeholder = "My App"
-		m.input.Focus()
-		return m, textinput.Blink
-	case "ctrl+c", "q", "esc":
+		return m, m.enterInputPhase(phaseCfgName)
+	case configureKeyQuit(msg), configureKeyBack(msg):
 		m.aborted = true
 		return m, tea.Quit
 	}
 	return m, nil
 }
 
-func (m configureModel) handleTextInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *configureModel) handleTextInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
 		m.aborted = true
@@ -408,7 +408,7 @@ func (m configureModel) discoverPortCmd() tea.Cmd {
 	}
 }
 
-func (m configureModel) handlePortDiscover(msg portDiscoverMsg) (tea.Model, tea.Cmd) {
+func (m *configureModel) handlePortDiscover(msg portDiscoverMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.portDiscoverNote = "Could not detect port automatically — enter one manually or leave blank."
 	} else if msg.port != "" {
@@ -418,11 +418,9 @@ func (m configureModel) handlePortDiscover(msg portDiscoverMsg) (tea.Model, tea.
 		m.portDiscoverNote = "No port found in command output — enter one manually or leave blank."
 	}
 
-	m.phase = phaseCfgServicePort
 	m.input.SetValue(m.currentService.Port)
 	m.input.Placeholder = "${PORT} (optional)"
-	m.input.Focus()
-	return m, textinput.Blink
+	return m, m.enterInputPhase(phaseCfgServicePort)
 }
 
 func (m *configureModel) finalizeCurrentService() {
@@ -440,13 +438,13 @@ func (m *configureModel) finalizeCurrentService() {
 	m.currentService = config.Service{}
 }
 
-func (m configureModel) handleDeps(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *configureModel) handleDeps(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	ids := m.depCandidates()
-	switch msg.String() {
-	case "ctrl+c", "q":
+	switch {
+	case configureKeyQuit(msg):
 		m.aborted = true
 		return m, tea.Quit
-	case "esc":
+	case configureKeyBack(msg):
 		if m.projectEditAll {
 			m.projectEditAll = false
 			m.projectEditAllIdx = 0
@@ -458,25 +456,25 @@ func (m configureModel) handleDeps(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.returnToServiceEditMenu()
 		}
 		if m.edit {
-			m.phase = phaseCfgRootMenu
+			m.enterMenuPhase(phaseCfgRootMenu)
 			return m, nil
 		}
 		m.aborted = true
 		return m, tea.Quit
-	case "up", "k":
+	case configureKeyUp(msg):
 		if m.depCursor > 0 {
 			m.depCursor--
 		}
-	case "down", "j":
-		if m.depCursor < len(ids)-1 {
+	case configureKeyDown(msg):
+		if len(ids) > 0 && m.depCursor < len(ids)-1 {
 			m.depCursor++
 		}
-	case " ":
+	case configureKeySpace(msg):
 		if len(ids) > 0 {
 			id := ids[m.depCursor]
 			m.depSelected[id] = !m.depSelected[id]
 		}
-	case "enter":
+	case configureKeyEnter(msg):
 		if m.partialEdit {
 			m.applyPartialDeps()
 			return m.returnToServiceEditMenu()
@@ -487,39 +485,35 @@ func (m configureModel) handleDeps(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m configureModel) handleRootMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *configureModel) handleRootMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	options := rootMenuOptions()
-	switch msg.String() {
-	case "ctrl+c", "q":
+	switch {
+	case configureKeyQuit(msg):
 		m.aborted = true
 		return m, tea.Quit
-	case "up", "k":
+	case configureKeyUp(msg):
 		if m.rootMenuCursor > 0 {
 			m.rootMenuCursor--
 		}
-	case "down", "j":
+	case configureKeyDown(msg):
 		if m.rootMenuCursor < len(options)-1 {
 			m.rootMenuCursor++
 		}
-	case "enter":
+	case configureKeyEnter(msg):
 		switch options[m.rootMenuCursor].choice {
 		case rootEditServices:
 			m.serviceMenuCursor = 0
-			m.phase = phaseCfgServiceMenu
+			m.enterMenuPhase(phaseCfgServiceMenu)
 		case rootEditName:
 			m.partialProjectEdit = true
-			m.phase = phaseCfgName
 			m.input.SetValue(m.name)
 			m.input.Placeholder = "My App"
-			m.input.Focus()
-			return m, textinput.Blink
+			return m, m.enterInputPhase(phaseCfgName)
 		case rootEditSubtitle:
 			m.partialProjectEdit = true
-			m.phase = phaseCfgSubtitle
 			m.input.SetValue(m.subtitle)
 			m.input.Placeholder = "Local development stack (optional)"
-			m.input.Focus()
-			return m, textinput.Blink
+			return m, m.enterInputPhase(phaseCfgSubtitle)
 		case rootEditAll:
 			if len(m.services) == 0 {
 				m.errMsg = "add at least one service"
@@ -527,17 +521,15 @@ func (m configureModel) handleRootMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.projectEditAll = true
 			m.projectEditAllIdx = 0
-			m.phase = phaseCfgName
 			m.input.SetValue(m.name)
 			m.input.Placeholder = "My App"
-			m.input.Focus()
-			return m, textinput.Blink
+			return m, m.enterInputPhase(phaseCfgName)
 		case rootEditFinish:
 			if len(m.services) == 0 {
 				m.errMsg = "add at least one service"
 				return m, nil
 			}
-			m.phase = phaseCfgPreview
+			m.enterMenuPhase(phaseCfgPreview)
 		}
 	}
 	return m, nil
@@ -551,7 +543,7 @@ func (m *configureModel) returnToRootMenu() (tea.Model, tea.Cmd) {
 	m.editingExisting = false
 	m.partialEdit = false
 	m.errMsg = ""
-	m.phase = phaseCfgRootMenu
+	m.enterMenuPhase(phaseCfgRootMenu)
 	return m, nil
 }
 
@@ -594,23 +586,23 @@ func (m configureModel) rootMenuValueDisplay(choice rootEditChoice) string {
 	}
 }
 
-func (m configureModel) handleServiceEditMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *configureModel) handleServiceEditMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	options := serviceEditMenuOptions()
-	switch msg.String() {
-	case "ctrl+c", "q":
+	switch {
+	case configureKeyQuit(msg):
 		m.aborted = true
 		return m, tea.Quit
-	case "esc":
+	case configureKeyBack(msg):
 		return m.leaveServiceEditMenu()
-	case "up", "k":
+	case configureKeyUp(msg):
 		if m.serviceEditCursor > 0 {
 			m.serviceEditCursor--
 		}
-	case "down", "j":
+	case configureKeyDown(msg):
 		if m.serviceEditCursor < len(options)-1 {
 			m.serviceEditCursor++
 		}
-	case "enter":
+	case configureKeyEnter(msg):
 		choice := options[m.serviceEditCursor].choice
 		if choice == serviceEditBack {
 			return m.leaveServiceEditMenu()
@@ -620,48 +612,48 @@ func (m configureModel) handleServiceEditMenu(msg tea.KeyMsg) (tea.Model, tea.Cm
 	return m, nil
 }
 
-func (m configureModel) handleServiceMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *configureModel) handleServiceMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	ids := m.sortedServiceIDs()
-	switch msg.String() {
-	case "ctrl+c", "q":
+	switch {
+	case configureKeyQuit(msg):
 		m.aborted = true
 		return m, tea.Quit
-	case "esc":
+	case configureKeyBack(msg):
 		if m.edit {
-			m.phase = phaseCfgRootMenu
+			m.enterMenuPhase(phaseCfgRootMenu)
 			return m, nil
 		}
 		m.aborted = true
 		return m, tea.Quit
-	case "up", "k":
+	case configureKeyUp(msg):
 		if m.serviceMenuCursor > 0 {
 			m.serviceMenuCursor--
 		}
-	case "down", "j":
+	case configureKeyDown(msg):
 		if len(ids) > 0 && m.serviceMenuCursor < len(ids)-1 {
 			m.serviceMenuCursor++
 		}
-	case "a", "A":
+	case msg.String() == "a", msg.String() == "A":
 		return m.beginAddService()
-	case "f", "F":
+	case msg.String() == "f", msg.String() == "F":
 		if len(m.services) == 0 {
 			m.errMsg = "add at least one service"
 			return m, nil
 		}
 		if m.edit {
-			m.phase = phaseCfgRootMenu
+			m.enterMenuPhase(phaseCfgRootMenu)
 			return m, nil
 		}
-		m.phase = phaseCfgPreview
+		m.enterMenuPhase(phaseCfgPreview)
 		return m, nil
-	case "d", "D":
+	case msg.String() == "d", msg.String() == "D":
 		if len(ids) == 0 {
 			return m, nil
 		}
 		m.pendingDeleteID = ids[m.serviceMenuCursor]
-		m.phase = phaseCfgDeleteConfirm
+		m.enterMenuPhase(phaseCfgDeleteConfirm)
 		return m, nil
-	case "enter":
+	case configureKeyEnter(msg):
 		if len(ids) == 0 {
 			return m.beginAddService()
 		}
@@ -670,7 +662,7 @@ func (m configureModel) handleServiceMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m configureModel) handleDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *configureModel) handleDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "esc", "q":
 		m.aborted = true
@@ -682,11 +674,11 @@ func (m configureModel) handleDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd)
 		if m.serviceMenuCursor >= len(ids) && len(ids) > 0 {
 			m.serviceMenuCursor = len(ids) - 1
 		}
-		m.phase = phaseCfgServiceMenu
+		m.enterMenuPhase(phaseCfgServiceMenu)
 		return m, nil
 	case "n", "N", "enter":
 		m.pendingDeleteID = ""
-		m.phase = phaseCfgServiceMenu
+		m.enterMenuPhase(phaseCfgServiceMenu)
 		return m, nil
 	}
 	return m, nil
@@ -699,7 +691,7 @@ func (m *configureModel) openServiceEditMenu(id string) (tea.Model, tea.Cmd) {
 	m.partialEdit = false
 	m.serviceEditCursor = 0
 	m.errMsg = ""
-	m.phase = phaseCfgServiceEditMenu
+	m.enterMenuPhase(phaseCfgServiceEditMenu)
 	return m, nil
 }
 
@@ -709,7 +701,7 @@ func (m *configureModel) leaveServiceEditMenu() (tea.Model, tea.Cmd) {
 	m.editingExisting = false
 	m.fromServiceEditMenu = false
 	m.partialEdit = false
-	m.phase = phaseCfgServiceMenu
+	m.enterMenuPhase(phaseCfgServiceMenu)
 	return m, nil
 }
 
@@ -718,7 +710,7 @@ func (m *configureModel) returnToServiceEditMenu() (tea.Model, tea.Cmd) {
 	m.editingExisting = true
 	m.currentService = config.Service{}
 	m.errMsg = ""
-	m.phase = phaseCfgServiceEditMenu
+	m.enterMenuPhase(phaseCfgServiceEditMenu)
 	return m, nil
 }
 
@@ -862,16 +854,16 @@ func (m *configureModel) returnAfterServiceSave() (tea.Model, tea.Cmd) {
 	}
 	if m.fromServiceEditMenu {
 		m.currentService = config.Service{}
-		m.phase = phaseCfgServiceEditMenu
+		m.enterMenuPhase(phaseCfgServiceEditMenu)
 		return m, nil
 	}
 	m.currentID = ""
 	m.currentService = config.Service{}
 	if m.fromServiceMenu {
-		m.phase = phaseCfgServiceMenu
+		m.enterMenuPhase(phaseCfgServiceMenu)
 		return m, nil
 	}
-	m.phase = phaseCfgAddAnother
+	m.enterMenuPhase(phaseCfgAddAnother)
 	return m, nil
 }
 
@@ -934,18 +926,16 @@ func copyService(svc config.Service) config.Service {
 	return copy
 }
 
-func (m configureModel) handleYesNo(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *configureModel) handleYesNo(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "esc", "q":
 		m.aborted = true
 		return m, tea.Quit
 	case "y", "Y":
 		if m.phase == phaseCfgAddAnother {
-			m.phase = phaseCfgServiceID
 			m.input.SetValue("")
 			m.input.Placeholder = ""
-			m.input.Focus()
-			return m, textinput.Blink
+			return m, m.enterInputPhase(phaseCfgServiceID)
 		}
 		return m.saveAndQuit()
 	case "n", "N":
@@ -954,7 +944,7 @@ func (m configureModel) handleYesNo(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.errMsg = "add at least one service"
 				return m, nil
 			}
-			m.phase = phaseCfgPreview
+			m.enterMenuPhase(phaseCfgPreview)
 			return m, nil
 		}
 		m.aborted = true
@@ -965,33 +955,33 @@ func (m configureModel) handleYesNo(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.errMsg = "add at least one service"
 				return m, nil
 			}
-			m.phase = phaseCfgPreview
+			m.enterMenuPhase(phaseCfgPreview)
 			return m, nil
 		}
 	}
 	return m, nil
 }
 
-func (m configureModel) handlePreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c", "q":
+func (m *configureModel) handlePreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case configureKeyQuit(msg):
 		m.aborted = true
 		return m, tea.Quit
-	case "esc":
+	case configureKeyBack(msg):
 		if m.edit {
-			m.phase = phaseCfgRootMenu
+			m.enterMenuPhase(phaseCfgRootMenu)
 			return m, nil
 		}
 		m.aborted = true
 		return m, tea.Quit
-	case "enter":
-		m.phase = phaseCfgConfirm
+	case configureKeyEnter(msg):
+		m.enterMenuPhase(phaseCfgConfirm)
 		return m, nil
 	}
 	return m, nil
 }
 
-func (m configureModel) handleDone(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *configureModel) handleDone(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "q", "esc", "enter", " ":
 		return m, tea.Quit

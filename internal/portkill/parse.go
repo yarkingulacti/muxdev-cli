@@ -7,9 +7,11 @@ import (
 )
 
 var (
-	eaddrInUseRE       = regexp.MustCompile(`(?i)EADDRINUSE(?:.*?)(?:::(\d{1,5})|[^0-9](\d{1,5})\s*$|port\s+(\d{1,5}))`)
-	portAlreadyInUseRE = regexp.MustCompile(`(?i)port\s+(\d{1,5})\s+is\s+already\s+in\s+use`)
-	portInUseRE        = regexp.MustCompile(`(?i)port\s+(\d{1,5})\s+is in use`)
+	eaddrInUseRE          = regexp.MustCompile(`(?i)EADDRINUSE(?:.*?)(?:::(\d{1,5})|[^0-9](\d{1,5})\s*$|port\s+(\d{1,5}))`)
+	portAlreadyInUseRE    = regexp.MustCompile(`(?i)port\s+(\d{1,5})\s+is\s+already\s+in\s+use`)
+	portInUseRE           = regexp.MustCompile(`(?i)port\s+(\d{1,5})\s+is in use`)
+	logPortFieldRE        = regexp.MustCompile(`(?i)\bport:\s*(\d{1,5})\b`)
+	addressAlreadyInUseRE = regexp.MustCompile(`(?i)(?:EADDRINUSE|Address already in use|\[Errno 98\])`)
 )
 
 // Conflict describes a detected port collision from service logs.
@@ -19,7 +21,18 @@ type Conflict struct {
 }
 
 // ParseConflict extracts port conflict info from a log line.
-func ParseConflict(line string) (Conflict, bool) {
+// hintPort is used only when the line reports a bind error without an explicit port (e.g. uvicorn).
+func ParseConflict(line string, hintPort int) (Conflict, bool) {
+	if c, ok := parseExplicitConflict(line); ok {
+		return c, true
+	}
+	if addressAlreadyInUseRE.MatchString(line) && validPort(hintPort) {
+		return Conflict{Port: hintPort, Fatal: true}, true
+	}
+	return Conflict{}, false
+}
+
+func parseExplicitConflict(line string) (Conflict, bool) {
 	if m := eaddrInUseRE.FindStringSubmatch(line); len(m) > 0 {
 		if port := firstPort(m[1:]); port > 0 {
 			return Conflict{Port: port, Fatal: true}, true
@@ -33,6 +46,11 @@ func ParseConflict(line string) (Conflict, bool) {
 	if m := portInUseRE.FindStringSubmatch(line); len(m) > 1 {
 		if port, err := strconv.Atoi(m[1]); err == nil && validPort(port) {
 			return Conflict{Port: port, Fatal: false}, true
+		}
+	}
+	if m := logPortFieldRE.FindStringSubmatch(line); len(m) > 1 {
+		if port, err := strconv.Atoi(m[1]); err == nil && validPort(port) {
+			return Conflict{Port: port, Fatal: true}, true
 		}
 	}
 	return Conflict{}, false

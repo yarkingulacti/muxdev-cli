@@ -21,7 +21,7 @@ Environment:
 
 Example:
   $0
-  $0 https://nexus.example.com/repository/muxdev-releases/stable/latest.json
+  $0 https://apps.developeryarkin.com/repository/muxdev-releases/stable/latest.json
 EOF
 }
 

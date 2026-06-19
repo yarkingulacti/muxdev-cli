@@ -56,6 +56,7 @@ func NewRoot() *cobra.Command {
 
 	root.Flags().StringVarP(&opts.ConfigPath, "config", "c", "", "Path to muxdev.yaml (default: search upward from cwd)")
 	root.Flags().BoolVar(&opts.NoInteractive, "no-interactive", false, "Run without the interactive TUI")
+	root.Flags().StringVar(&opts.Runtime, "runtime", "", "Start mode: sync (sequential, dependency order) or async (parallel)")
 	root.Flags().StringVar(&focus, "focus", "", "Comma-separated service IDs to run")
 
 	root.AddCommand(newListCmd())

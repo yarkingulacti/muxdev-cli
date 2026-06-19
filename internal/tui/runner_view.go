@@ -80,6 +80,7 @@ type runnerModel struct {
 	mu         sync.Mutex
 	updateHint string
 
+	runtime      config.Runtime
 	filterMenu   bool
 	filterCursor int
 	filterLabel  string
@@ -96,8 +97,8 @@ type runnerModel struct {
 	attachDoneCh chan attachDoneMsg
 }
 
-func runLogs(cfg *config.Config, serviceIDs []string, workDir, updateHint string) error {
-	model := newRunnerModel(cfg, serviceIDs, workDir, updateHint)
+func runLogs(cfg *config.Config, serviceIDs []string, workDir, updateHint string, runtime config.Runtime) error {
+	model := newRunnerModel(cfg, serviceIDs, workDir, updateHint, runtime)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	final, err := p.Run()
 	if err != nil {
@@ -107,11 +108,15 @@ func runLogs(cfg *config.Config, serviceIDs []string, workDir, updateHint string
 	return m.runErr
 }
 
-func newRunnerModel(cfg *config.Config, serviceIDs []string, workDir, updateHint string) runnerModel {
+func newRunnerModel(cfg *config.Config, serviceIDs []string, workDir, updateHint string, runtime config.Runtime) runnerModel {
+	if runtime == "" {
+		runtime = config.DefaultRuntime
+	}
 	return runnerModel{
 		cfg:        cfg,
 		serviceIDs: serviceIDs,
 		workDir:    workDir,
+		runtime:    runtime,
 		entries:    make([]logEntry, 0, 256),
 		updateHint: updateHint,
 	}
@@ -128,7 +133,7 @@ func (m runnerModel) startRunner() tea.Cmd {
 		doneCh := make(chan runDoneMsg, 1)
 
 		go func() {
-			r := runner.New(m.cfg, m.serviceIDs)
+			r := runner.New(m.cfg, m.serviceIDs, m.runtime)
 			err := r.Run(runner.Context{
 				WorkDir: m.workDir,
 				OnLine: func(label string, stderr bool, text string) {
@@ -174,7 +179,10 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case portKillMsg:
 		m.killPending = false
 		if msg.err != nil {
-			m.conflictNote = errStyle.Render(fmt.Sprintf("Could not free port %d: %v", msg.port, msg.err))
+			m.conflictNote = errStyle.Render(fmt.Sprintf(
+				"Could not free port %d: %v — if kill failed, check logs for the actual port in use",
+				msg.port, msg.err,
+			))
 		} else {
 			m.clearLogs()
 			m.portConflict = nil
@@ -232,6 +240,7 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case runDoneMsg:
+		m.drainPendingLogs()
 		m.runErr = msg.err
 		if m.attachPending {
 			return m, nil
@@ -348,8 +357,22 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *runnerModel) drainPendingLogs() {
+	for m.logCh != nil {
+		log, ok := <-m.logCh
+		if !ok {
+			m.logCh = nil
+			return
+		}
+		m.appendLog(log)
+		if !m.attached {
+			m.detectPortConflict(log)
+		}
+	}
+}
+
 func (m *runnerModel) detectPortConflict(msg logMsg) {
-	conflict, ok := portkill.ParseConflict(msg.text)
+	conflict, ok := portkill.ParseConflict(msg.text, m.hintPortForLog(msg))
 	if !ok {
 		return
 	}
@@ -366,6 +389,24 @@ func (m *runnerModel) detectPortConflict(msg logMsg) {
 	}
 }
 
+func (m runnerModel) hintPortForLog(msg logMsg) int {
+	label := strings.TrimSuffix(msg.label, "!")
+	for _, id := range m.serviceIDs {
+		svc, ok := m.cfg.Services[id]
+		if !ok {
+			continue
+		}
+		if label == serviceLogLabel(m.cfg, id) || label == id {
+			resolved := config.ResolveServicePort(m.cfg, m.workDir, svc)
+			port, err := strconv.Atoi(strings.TrimSpace(resolved.Port))
+			if err == nil && port > 0 {
+				return port
+			}
+		}
+	}
+	return 0
+}
+
 func conflictActionHint(fatal bool) string {
 	if fatal {
 		return " — a attach  k kill & restart  n ignore"
@@ -379,6 +420,7 @@ func (m runnerModel) View() string {
 	}
 
 	status := fmt.Sprintf("Running: %s", strings.Join(m.serviceIDs, ", "))
+	status += mutedStyle.Render("  ·  " + string(m.runtime))
 	if m.filterLabel != "" {
 		status += mutedStyle.Render("  ·  filter: " + m.filterLabel)
 	}

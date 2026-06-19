@@ -1,7 +1,7 @@
 # From repo root (loads .env for ${NEXUS_*} substitution + container env):
 #   docker compose --env-file .env -f packaging/nexus/docker-compose.yml up -d
 #
-# Reverse proxy (optional): expose NEXUS_URL → 127.0.0.1:${NEXUS_PORT}
+# Reverse proxy: apps.developeryarkin.com → 127.0.0.1:${NEXUS_PORT} (see NEXUS_URL in .env)
 
 services:
   nexus:

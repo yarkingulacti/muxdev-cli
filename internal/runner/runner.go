@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -27,10 +26,14 @@ type Context struct {
 type Runner struct {
 	cfg        *config.Config
 	serviceIDs []string
+	runtime    config.Runtime
 }
 
-func New(cfg *config.Config, serviceIDs []string) *Runner {
-	return &Runner{cfg: cfg, serviceIDs: serviceIDs}
+func New(cfg *config.Config, serviceIDs []string, runtime config.Runtime) *Runner {
+	if runtime == "" {
+		runtime = config.DefaultRuntime
+	}
+	return &Runner{cfg: cfg, serviceIDs: serviceIDs, runtime: runtime}
 }
 
 func (r *Runner) Run(ctx Context) error {
@@ -48,18 +51,94 @@ func (r *Runner) Run(ctx Context) error {
 		go platform.HandleInterrupt(cancel)
 	}
 
-	var wg sync.WaitGroup
-	errCh := make(chan error, len(r.serviceIDs))
+	order := config.OrderForStart(r.serviceIDs, r.cfg.Services)
+	if r.runtime == config.RuntimeAsync {
+		return r.runAsync(rootCtx, ctx, order, cancel)
+	}
+	return r.runSync(rootCtx, ctx, order, cancel)
+}
 
-	for _, id := range r.serviceIDs {
+func (r *Runner) runSync(rootCtx context.Context, ctx Context, order []string, cancel context.CancelFunc) error {
+	handles := make([]*serviceHandle, 0, len(order))
+
+	for _, id := range order {
+		if rootCtx.Err() != nil {
+			break
+		}
+		handle, err := r.launchService(rootCtx, ctx, id)
+		if err != nil {
+			cancel()
+			for _, h := range handles {
+				_ = h.wait(rootCtx)
+			}
+			return err
+		}
+		handles = append(handles, handle)
+	}
+
+	return r.waitHandles(rootCtx, cancel, handles)
+}
+
+func (r *Runner) runAsync(rootCtx context.Context, ctx Context, order []string, cancel context.CancelFunc) error {
+	handles := make([]*serviceHandle, 0, len(order))
+	var mu sync.Mutex
+	var launchErr error
+
+	var wg sync.WaitGroup
+	for _, id := range order {
 		wg.Add(1)
 		go func(serviceID string) {
 			defer wg.Done()
-			if err := r.runService(rootCtx, ctx, serviceID); err != nil {
+			handle, err := r.launchService(rootCtx, ctx, serviceID)
+			if err != nil {
+				mu.Lock()
+				if launchErr == nil {
+					launchErr = err
+					cancel()
+				}
+				mu.Unlock()
+				return
+			}
+			mu.Lock()
+			handles = append(handles, handle)
+			mu.Unlock()
+		}(id)
+	}
+	wg.Wait()
+
+	if launchErr != nil {
+		mu.Lock()
+		h := append([]*serviceHandle(nil), handles...)
+		mu.Unlock()
+		for _, handle := range h {
+			_ = handle.wait(rootCtx)
+		}
+		return launchErr
+	}
+
+	mu.Lock()
+	h := append([]*serviceHandle(nil), handles...)
+	mu.Unlock()
+	return r.waitHandles(rootCtx, cancel, h)
+}
+
+func (r *Runner) waitHandles(rootCtx context.Context, cancel context.CancelFunc, handles []*serviceHandle) error {
+	if len(handles) == 0 {
+		return rootCtx.Err()
+	}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(handles))
+
+	for _, handle := range handles {
+		wg.Add(1)
+		go func(h *serviceHandle) {
+			defer wg.Done()
+			if err := h.wait(rootCtx); err != nil {
 				errCh <- err
 				cancel()
 			}
-		}(id)
+		}(handle)
 	}
 
 	done := make(chan struct{})
@@ -87,47 +166,57 @@ func (r *Runner) Run(ctx Context) error {
 	return rootCtx.Err()
 }
 
-func (r *Runner) runService(ctx context.Context, runCtx Context, serviceID string) error {
+type serviceHandle struct {
+	id       string
+	cmd      *exec.Cmd
+	streamWG sync.WaitGroup
+}
+
+func (r *Runner) launchService(ctx context.Context, runCtx Context, serviceID string) (*serviceHandle, error) {
 	svc := r.cfg.Services[serviceID]
 	cmd := exec.CommandContext(ctx, platform.ShellCommand(), platform.ShellArgs(svc.Command)...)
 	cmd.Dir = runCtx.WorkDir
-	cmd.Env = mergeEnv(os.Environ(), svc.Env)
+	cmd.Env = envMapToSlice(config.ServiceRunEnv(runCtx.WorkDir, svc))
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("service %q: stdout pipe: %w", serviceID, err)
+		return nil, fmt.Errorf("service %q: stdout pipe: %w", serviceID, err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return fmt.Errorf("service %q: stderr pipe: %w", serviceID, err)
+		return nil, fmt.Errorf("service %q: stderr pipe: %w", serviceID, err)
 	}
 
 	platform.ConfigureCommand(cmd)
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("service %q: start: %w", serviceID, err)
+		return nil, fmt.Errorf("service %q: start: %w", serviceID, err)
 	}
 
 	label := serviceLabel(serviceID, svc.Label)
-	var streamWG sync.WaitGroup
-	streamWG.Add(2)
+	handle := &serviceHandle{id: serviceID, cmd: cmd}
+	handle.streamWG.Add(2)
 	go func() {
-		defer streamWG.Done()
+		defer handle.streamWG.Done()
 		streamLines(ctx, runCtx, label, false, stdout)
 	}()
 	go func() {
-		defer streamWG.Done()
+		defer handle.streamWG.Done()
 		streamLines(ctx, runCtx, label+"!", true, stderr)
 	}()
 
-	waitErr := cmd.Wait()
-	streamWG.Wait()
+	return handle, nil
+}
+
+func (h *serviceHandle) wait(ctx context.Context) error {
+	waitErr := h.cmd.Wait()
+	h.streamWG.Wait()
 
 	if ctx.Err() != nil {
 		return nil
 	}
 	if waitErr != nil {
-		return fmt.Errorf("service %q: %w", serviceID, waitErr)
+		return fmt.Errorf("service %q: %w", h.id, waitErr)
 	}
 	return nil
 }
@@ -171,12 +260,9 @@ func serviceLabel(id, label string) string {
 	return label
 }
 
-func mergeEnv(base []string, extra map[string]string) []string {
-	if len(extra) == 0 {
-		return base
-	}
-	out := append([]string(nil), base...)
-	for key, value := range extra {
+func envMapToSlice(env map[string]string) []string {
+	out := make([]string, 0, len(env))
+	for key, value := range env {
 		out = append(out, key+"="+value)
 	}
 	return out

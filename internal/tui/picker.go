@@ -18,6 +18,7 @@ type Options struct {
 	Focus      []string
 	WorkDir    string
 	UpdateHint string
+	Runtime    config.Runtime
 }
 
 var (
@@ -47,7 +48,7 @@ func Run(opts Options) error {
 		serviceIDs = resolved
 	}
 
-	return runLogs(opts.Cfg, serviceIDs, opts.WorkDir, opts.UpdateHint)
+	return runLogs(opts.Cfg, serviceIDs, opts.WorkDir, opts.UpdateHint, opts.Runtime)
 }
 
 func runPicker(cfg *config.Config, updateHint string) ([]string, error) {

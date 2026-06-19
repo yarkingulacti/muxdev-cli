@@ -85,7 +85,7 @@ muxdev version --short    # 0.1.0
 Point the updater at a manifest URL (e.g. Nexus raw repo):
 
 ```bash
-export MUXDEV_UPDATE_URL="https://nexus.example.com/repository/muxdev-releases/stable/latest.json"
+export MUXDEV_UPDATE_URL="https://apps.developeryarkin.com/repository/muxdev-releases/stable/latest.json"
 muxdev update --check
 ```
 
@@ -106,7 +106,7 @@ Verify an existing publish:
 ./scripts/test-nexus.sh --live   # verify remote latest.json
 ```
 
-**GitHub Releases:** pushing a `v*` tag runs `.github/workflows/release.yml` (Goreleaser + optional Nexus upload + verify). Set repository secrets `NEXUS_URL`, `NEXUS_AUTH`, and optionally `NEXUS_REPO`. After publish, point `MUXDEV_UPDATE_URL` at your `latest.json`.
+**GitHub Releases:** pushing a `v*` tag runs `.github/workflows/release.yml` (Goreleaser + optional Nexus upload + verify). Set repository secrets `NEXUS_URL=https://apps.developeryarkin.com`, `NEXUS_AUTH`, and optionally `NEXUS_REPO`. After publish, set `MUXDEV_UPDATE_URL` to the manifest URL above.
 
 Package manager installs should use their native upgrade commands (`brew upgrade`, `scoop update`, `winget upgrade`).
 
