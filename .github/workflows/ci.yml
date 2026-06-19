@@ -41,4 +41,4 @@ jobs:
         shell: bash
         run: |
           ./muxdev${{ matrix.os == 'windows-latest' && '.exe' || '' }} --version
-          ./muxdev${{ matrix.os == 'windows-latest' && '.exe' || '' }} --list --config testdata/muxdev.yaml
+          ./muxdev${{ matrix.os == 'windows-latest' && '.exe' || '' }} list --config testdata/muxdev.yaml

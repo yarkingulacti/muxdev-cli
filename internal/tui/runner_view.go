@@ -18,6 +18,12 @@ import (
 
 const maxLogLines = 5000
 
+type logEntry struct {
+	label  string
+	stderr bool
+	text   string
+}
+
 type logMsg struct {
 	label  string
 	stderr bool
@@ -62,7 +68,7 @@ type runnerModel struct {
 	serviceIDs []string
 	workDir    string
 	viewport   viewport.Model
-	lines      []string
+	entries    []logEntry
 	width      int
 	height     int
 	ready      bool
@@ -73,6 +79,10 @@ type runnerModel struct {
 	done       bool
 	mu         sync.Mutex
 	updateHint string
+
+	filterMenu   bool
+	filterCursor int
+	filterLabel  string
 
 	portConflict *portkill.Conflict
 	conflictNote string
@@ -102,7 +112,7 @@ func newRunnerModel(cfg *config.Config, serviceIDs []string, workDir, updateHint
 		cfg:        cfg,
 		serviceIDs: serviceIDs,
 		workDir:    workDir,
-		lines:      make([]string, 0, 256),
+		entries:    make([]logEntry, 0, 256),
 		updateHint: updateHint,
 	}
 }
@@ -149,20 +159,14 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.doneCh = msg.doneCh
 		m.done = false
 		m.conflictNote = ""
-		if m.ready {
-			m.viewport.SetContent(m.logContent())
-			m.viewport.GotoTop()
-		}
+		m.refreshLogViewport(false)
 		return m, tea.Batch(waitForLog(m.logCh), waitForDone(m.doneCh))
 	case logMsg:
 		m.appendLog(msg)
 		if !m.attached {
 			m.detectPortConflict(msg)
 		}
-		if m.ready {
-			m.viewport.SetContent(m.logContent())
-			m.viewport.GotoBottom()
-		}
+		m.refreshLogViewport(true)
 		if m.attached {
 			return m, waitForAttachLog(m.attachLogCh)
 		}
@@ -210,10 +214,7 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.attachCancel = msg.cancel
 		m.attachLogCh = msg.logCh
 		m.attachDoneCh = msg.doneCh
-		if m.ready {
-			m.viewport.SetContent(m.logContent())
-			m.viewport.GotoBottom()
-		}
+		m.refreshLogViewport(true)
 		return m, tea.Batch(waitForAttachLog(m.attachLogCh), waitForAttachDone(m.attachDoneCh))
 	case attachDoneMsg:
 		if !m.attached {
@@ -246,6 +247,35 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Quit
 	case tea.KeyMsg:
+		if m.filterMenu {
+			switch msg.String() {
+			case "esc":
+				m.filterMenu = false
+				return m, nil
+			case "f":
+				m.filterMenu = false
+				return m, nil
+			case "up", "k":
+				if m.filterCursor > 0 {
+					m.filterCursor--
+				}
+			case "down", "j":
+				items := m.filterMenuItems()
+				if m.filterCursor < len(items)-1 {
+					m.filterCursor++
+				}
+			case "enter":
+				items := m.filterMenuItems()
+				if m.filterCursor >= 0 && m.filterCursor < len(items) {
+					m.filterLabel = items[m.filterCursor].label
+				}
+				m.filterMenu = false
+				m.refreshLogViewport(false)
+				return m, nil
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "ctrl+c", "q":
 			if m.awaitingKill {
@@ -283,6 +313,13 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+		case "f", "F":
+			if m.awaitingKill || m.attachPending || m.killPending {
+				return m, nil
+			}
+			m.filterMenu = true
+			m.filterCursor = m.filterMenuIndex()
+			return m, nil
 		}
 		if m.ready && !m.awaitingKill {
 			var cmd tea.Cmd
@@ -300,13 +337,12 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if !m.ready {
 			m.viewport = viewport.New(msg.Width, viewHeight)
-			m.viewport.SetContent(m.logContent())
-			m.viewport.GotoBottom()
+			m.refreshLogViewport(true)
 			m.ready = true
 		} else {
 			m.viewport.Width = msg.Width
 			m.viewport.Height = viewHeight
-			m.viewport.SetContent(m.logContent())
+			m.refreshLogViewport(false)
 		}
 	}
 	return m, nil
@@ -343,6 +379,9 @@ func (m runnerModel) View() string {
 	}
 
 	status := fmt.Sprintf("Running: %s", strings.Join(m.serviceIDs, ", "))
+	if m.filterLabel != "" {
+		status += mutedStyle.Render("  ·  filter: " + m.filterLabel)
+	}
 	if m.attached {
 		status = fmt.Sprintf("Attached: %s", m.attachLabel)
 	} else if m.awaitingKill {
@@ -351,7 +390,9 @@ func (m runnerModel) View() string {
 	header := renderHeader(m.cfg, m.width, status)
 
 	var body string
-	if m.ready {
+	if m.filterMenu {
+		body = m.renderFilterMenu()
+	} else if m.ready {
 		body = m.viewport.View()
 	} else {
 		body = mutedStyle.Render("Waiting for logs...")
@@ -362,6 +403,9 @@ func (m runnerModel) View() string {
 }
 
 func (m runnerModel) renderFooter() string {
+	if m.filterMenu {
+		return helpStyle.Render("↑/↓ select  enter apply  esc cancel")
+	}
 	if m.attached {
 		base := "↑/↓ scroll  q quit"
 		if m.conflictNote != "" {
@@ -382,7 +426,10 @@ func (m runnerModel) renderFooter() string {
 		}
 		return helpStyle.Render(m.conflictNote + "  |  " + hint)
 	}
-	base := "↑/↓ scroll  pgup/pgdn  q quit"
+	base := "↑/↓ scroll  f filter  pgup/pgdn  q quit"
+	if m.filterLabel != "" {
+		base = "↑/↓ scroll  f filter (" + m.filterLabel + ")  q quit"
+	}
 	if m.updateHint != "" {
 		base = m.updateHint + "  |  " + base
 	}
@@ -392,28 +439,119 @@ func (m runnerModel) renderFooter() string {
 func (m *runnerModel) clearLogs() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.lines = m.lines[:0]
+	m.entries = m.entries[:0]
 }
 
 func (m *runnerModel) appendLog(msg logMsg) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	style := lipgloss.NewStyle()
-	if msg.stderr {
-		style = errStyle
-	}
-	line := fmt.Sprintf("[%s] %s", msg.label, style.Render(msg.text))
-	m.lines = append(m.lines, line)
-	if len(m.lines) > maxLogLines {
-		m.lines = m.lines[len(m.lines)-maxLogLines:]
+	m.entries = append(m.entries, logEntry{
+		label:  msg.label,
+		stderr: msg.stderr,
+		text:   msg.text,
+	})
+	if len(m.entries) > maxLogLines {
+		m.entries = m.entries[len(m.entries)-maxLogLines:]
 	}
 }
 
 func (m runnerModel) logContent() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return strings.Join(m.lines, "\n")
+
+	lines := make([]string, 0, len(m.entries))
+	for _, entry := range m.entries {
+		if m.filterLabel != "" && entry.label != m.filterLabel {
+			continue
+		}
+		style := lipgloss.NewStyle()
+		if entry.stderr {
+			style = errStyle
+		}
+		line := fmt.Sprintf("[%s] %s", entry.label, style.Render(entry.text))
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return mutedStyle.Render("No logs yet.")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m *runnerModel) refreshLogViewport(scrollBottom bool) {
+	if !m.ready || m.filterMenu {
+		return
+	}
+	m.viewport.SetContent(m.logContent())
+	if scrollBottom {
+		m.viewport.GotoBottom()
+	}
+}
+
+type filterMenuItem struct {
+	title string
+	label string
+}
+
+func (m runnerModel) filterMenuItems() []filterMenuItem {
+	items := []filterMenuItem{{title: "All services", label: ""}}
+	for _, id := range m.serviceIDs {
+		label := serviceLogLabel(m.cfg, id)
+		items = append(items, filterMenuItem{
+			title: fmt.Sprintf("%s (%s)", label, id),
+			label: label,
+		})
+	}
+	return items
+}
+
+func (m runnerModel) filterMenuIndex() int {
+	if m.filterLabel == "" {
+		return 0
+	}
+	items := m.filterMenuItems()
+	for i, item := range items {
+		if item.label == m.filterLabel {
+			return i
+		}
+	}
+	return 0
+}
+
+func (m runnerModel) renderFilterMenu() string {
+	items := m.filterMenuItems()
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Filter logs by service"))
+	b.WriteString("\n\n")
+	for i, item := range items {
+		marker := "  "
+		if i == m.filterCursor {
+			marker = cursorStyle.Render("> ")
+		}
+		line := item.title
+		if i == m.filterCursor {
+			line = selectedStyle.Render(line)
+		}
+		if item.label != "" && item.label == m.filterLabel {
+			line += mutedStyle.Render("  (active)")
+		}
+		b.WriteString(marker + line + "\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("↑/↓ select  enter apply  esc cancel"))
+	width := min(m.width-2, 56)
+	if width < 20 {
+		width = 20
+	}
+	return cardStyle.Width(width).Render(b.String())
+}
+
+func serviceLogLabel(cfg *config.Config, id string) string {
+	svc := cfg.Services[id]
+	if strings.TrimSpace(svc.Label) != "" {
+		return svc.Label
+	}
+	return id
 }
 
 func waitForLog(ch chan logMsg) tea.Cmd {

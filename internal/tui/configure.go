@@ -1239,7 +1239,7 @@ func (m configureModel) renderDone() string {
 	b.WriteString(selectedStyle.Render("muxdev"))
 	b.WriteString("          Start the interactive dev stack\n")
 	b.WriteString("  ")
-	b.WriteString(selectedStyle.Render("muxdev --list"))
+	b.WriteString(selectedStyle.Render("muxdev list"))
 	b.WriteString("   List configured services\n")
 	b.WriteString("  ")
 	b.WriteString(selectedStyle.Render("muxdev configure"))

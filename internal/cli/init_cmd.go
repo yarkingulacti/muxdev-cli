@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -82,16 +83,19 @@ func newConfigureCmd() *cobra.Command {
 			if path == "" {
 				found, err := config.FindDefault(cwd)
 				if err != nil {
-					path = config.DefaultFilename
-				} else {
-					path = found
+					return fmt.Errorf("%w (pass --output or run from a project with muxdev.yaml)", err)
 				}
+				path = found
+			}
+			workDir, err := resolveWorkDir(path)
+			if err != nil {
+				return err
 			}
 			err = tui.RunConfigure(tui.ConfigureOptions{
 				OutputPath: path,
 				Force:      force,
 				Edit:       true,
-				WorkDir:    cwd,
+				WorkDir:    workDir,
 			})
 			if errors.Is(err, tui.ErrAborted) {
 				return nil

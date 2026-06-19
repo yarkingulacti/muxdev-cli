@@ -24,8 +24,8 @@ func run(opts Options, focus string) error {
 	}
 
 	if !config.Exists(cfgPath) {
-		if opts.List {
-			return fmt.Errorf("%s not found", cfgPath)
+		if opts.ConfigPath == "" {
+			return fmt.Errorf("%s not found (run `muxdev init` or pass --config)", cfgPath)
 		}
 		interactive := !opts.NoInteractive && isTerminal(os.Stdout)
 		if !interactive {
@@ -39,14 +39,14 @@ func run(opts Options, focus string) error {
 		}
 	}
 
-	cfg, err := config.Load(cfgPath)
+	workDir, err := resolveWorkDir(cfgPath)
 	if err != nil {
 		return err
 	}
 
-	if opts.List {
-		printServiceList(cfg)
-		return nil
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
 	}
 
 	focusIDs := parseFocus(focus)
@@ -61,7 +61,7 @@ func run(opts Options, focus string) error {
 		err := tui.Run(tui.Options{
 			Cfg:        cfg,
 			Focus:      focusIDs,
-			WorkDir:    ".",
+			WorkDir:    workDir,
 			UpdateHint: hint,
 		})
 		if errors.Is(err, tui.ErrAborted) {
@@ -76,7 +76,11 @@ func run(opts Options, focus string) error {
 	}
 
 	r := runner.New(cfg, serviceIDs)
-	return r.Run(cmdContext())
+	return r.Run(runner.Context{
+		WorkDir: workDir,
+		Stdout:  os.Stdout,
+		Stderr:  os.Stderr,
+	})
 }
 
 func backgroundUpdateCheck() {
@@ -109,14 +113,26 @@ func resolveConfigPath(explicit string) (string, error) {
 	if path, err := config.FindDefault(cwd); err == nil {
 		return path, nil
 	}
-	return filepath.Join(cwd, config.DefaultFilename), nil
+	return "", fmt.Errorf("%s not found from %s", config.DefaultFilename, cwd)
+}
+
+func resolveWorkDir(cfgPath string) (string, error) {
+	abs, err := filepath.Abs(cfgPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve work directory: %w", err)
+	}
+	return filepath.Dir(abs), nil
 }
 
 func runInitWizard(path string) error {
-	err := tui.RunConfigure(tui.ConfigureOptions{
+	workDir, err := resolveWorkDir(path)
+	if err != nil {
+		return err
+	}
+	err = tui.RunConfigure(tui.ConfigureOptions{
 		OutputPath: path,
 		Init:       true,
-		WorkDir:    ".",
+		WorkDir:    workDir,
 	})
 	if errors.Is(err, tui.ErrAborted) {
 		return nil
@@ -153,10 +169,3 @@ func printServiceList(cfg *config.Config) {
 	fmt.Println(tui.RenderServiceList(cfg, width))
 }
 
-func cmdContext() runner.Context {
-	return runner.Context{
-		WorkDir: ".",
-		Stdout:  os.Stdout,
-		Stderr:  os.Stderr,
-	}
-}
