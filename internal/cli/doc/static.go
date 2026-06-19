@@ -56,6 +56,7 @@ Navigation:
 
 Actions:
   f                     filter logs by service
+  r                     re-run services (interactive picker)
   q / Ctrl+C            quit (waits for clean shutdown)
   k                     free occupied port and restart services
   a                     attach to process on conflict port

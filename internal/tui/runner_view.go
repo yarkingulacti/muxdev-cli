@@ -89,6 +89,10 @@ type runnerModel struct {
 	filterCursor int
 	filterLabel  string
 
+	rerunMenu      bool
+	rerunCursor    int
+	rerunSelected  map[string]bool
+
 	portConflict *portkill.Conflict
 	conflictNote string
 	awaitingKill bool
@@ -280,9 +284,57 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.done = true
 		if m.cancel != nil {
 			m.cancel()
+			m.cancel = nil
 		}
-		return m, tea.Quit
+		m.openRerunMenu()
+		return m, nil
 	case tea.KeyMsg:
+		if m.rerunMenu {
+			switch msg.String() {
+			case "ctrl+c", "q":
+				if m.done {
+					return m, tea.Quit
+				}
+				m.rerunMenu = false
+				return m, nil
+			case "esc":
+				m.rerunMenu = false
+				if m.done {
+					return m, tea.Quit
+				}
+				return m, nil
+			case "r":
+				m.rerunMenu = false
+				return m, nil
+			case "up", "k":
+				if m.rerunCursor > 0 {
+					m.rerunCursor--
+				}
+			case "down", "j":
+				if m.rerunCursor < len(m.serviceIDs)-1 {
+					m.rerunCursor++
+				}
+			case " ":
+				if len(m.serviceIDs) == 0 {
+					return m, nil
+				}
+				id := m.serviceIDs[m.rerunCursor]
+				m.rerunSelected[id] = !m.rerunSelected[id]
+			case "a":
+				all := !m.rerunAllSelected()
+				for _, id := range m.serviceIDs {
+					m.rerunSelected[id] = all
+				}
+			case "enter":
+				chosen := m.rerunChosenIDs()
+				if len(chosen) == 0 {
+					return m, nil
+				}
+				return m.applyRerun(chosen)
+			}
+			return m, nil
+		}
+
 		if m.filterMenu {
 			switch msg.String() {
 			case "esc":
@@ -363,6 +415,12 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.filterMenu = true
 			m.filterCursor = m.filterMenuIndex()
+			return m, nil
+		case "r", "R":
+			if m.awaitingKill || m.attachPending || m.killPending || m.attached {
+				return m, nil
+			}
+			m.openRerunMenu()
 			return m, nil
 		}
 		if m.ready && !m.awaitingKill && !logScrollKey(msg) {
@@ -454,6 +512,9 @@ func (m runnerModel) View() string {
 	}
 
 	status := fmt.Sprintf("Running: %s", strings.Join(m.serviceIDs, ", "))
+	if m.done {
+		status = "Finished — pick services to re-run"
+	}
 	status += mutedStyle.Render("  ·  " + string(m.runtime))
 	if m.filterLabel != "" {
 		status += mutedStyle.Render("  ·  filter: " + m.filterLabel)
@@ -468,7 +529,9 @@ func (m runnerModel) View() string {
 	header := renderHeader(m.cfg, m.width, status)
 
 	var body string
-	if m.filterMenu {
+	if m.rerunMenu {
+		body = m.renderRerunMenu()
+	} else if m.filterMenu {
 		body = m.renderFilterMenu()
 	} else if m.ready {
 		body = m.viewport.View()
@@ -481,6 +544,12 @@ func (m runnerModel) View() string {
 }
 
 func (m runnerModel) renderFooter() string {
+	if m.rerunMenu {
+		if m.done {
+			return helpStyle.Render("↑/↓ move  space toggle  a all  enter re-run  esc quit")
+		}
+		return helpStyle.Render("↑/↓ move  space toggle  a all  enter re-run  esc cancel")
+	}
 	if m.filterMenu {
 		return helpStyle.Render("↑/↓ select  enter apply  esc cancel")
 	}
@@ -574,7 +643,7 @@ func (m runnerModel) logContent() string {
 }
 
 func (m *runnerModel) refreshLogViewport() {
-	if !m.ready || m.filterMenu {
+	if !m.ready || m.filterMenu || m.rerunMenu {
 		return
 	}
 	offset := m.viewport.YOffset
@@ -637,6 +706,95 @@ func (m runnerModel) renderFilterMenu() string {
 	}
 	b.WriteString("\n")
 	b.WriteString(mutedStyle.Render("↑/↓ select  enter apply  esc cancel"))
+	width := min(m.width-2, 56)
+	if width < 20 {
+		width = 20
+	}
+	return cardStyle.Width(width).Render(b.String())
+}
+
+func (m *runnerModel) openRerunMenu() {
+	m.rerunMenu = true
+	m.rerunCursor = 0
+	m.rerunSelected = make(map[string]bool, len(m.serviceIDs))
+	for _, id := range m.serviceIDs {
+		m.rerunSelected[id] = true
+	}
+}
+
+func (m runnerModel) rerunAllSelected() bool {
+	for _, id := range m.serviceIDs {
+		if !m.rerunSelected[id] {
+			return false
+		}
+	}
+	return len(m.serviceIDs) > 0
+}
+
+func (m runnerModel) rerunChosenIDs() []string {
+	chosen := make([]string, 0, len(m.serviceIDs))
+	for _, id := range m.serviceIDs {
+		if m.rerunSelected[id] {
+			chosen = append(chosen, id)
+		}
+	}
+	return chosen
+}
+
+func (m *runnerModel) applyRerun(chosen []string) (runnerModel, tea.Cmd) {
+	resolved, err := m.cfg.ResolveServices(chosen)
+	if err != nil {
+		m.conflictNote = errStyle.Render(err.Error())
+		m.rerunMenu = false
+		return *m, nil
+	}
+	m.serviceIDs = resolved
+	m.rerunMenu = false
+	m.rerunSelected = nil
+	m.clearLogs()
+	m.portConflict = nil
+	m.awaitingKill = false
+	m.conflictNote = ""
+	m.runErr = nil
+	m.done = false
+	m.followTail = true
+	if m.cancel != nil {
+		m.cancel()
+	}
+	return *m, m.startRunner()
+}
+
+func (m runnerModel) renderRerunMenu() string {
+	var b strings.Builder
+	title := "Re-run services"
+	if m.done {
+		title = "Services stopped — re-run selection"
+	}
+	b.WriteString(titleStyle.Render(title))
+	b.WriteString("\n\n")
+
+	for i, id := range m.serviceIDs {
+		svc := m.cfg.Services[id]
+		marker := "  "
+		if i == m.rerunCursor {
+			marker = cursorStyle.Render("> ")
+		}
+
+		check := "[ ]"
+		if m.rerunSelected[id] {
+			check = selectedStyle.Render("[x]")
+		}
+
+		line := fmt.Sprintf("%s%s %s (%s)", marker, check, svc.Label, id)
+		if len(svc.DependsOn) > 0 {
+			line += mutedStyle.Render("  depends: " + strings.Join(svc.DependsOn, ", "))
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("↑/↓ move  space toggle  a all  enter re-run  esc cancel"))
 	width := min(m.width-2, 56)
 	if width < 20 {
 		width = 20

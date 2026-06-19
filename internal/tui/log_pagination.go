@@ -86,7 +86,7 @@ func formatLogPagination(p LogPagination, live bool) string {
 }
 
 func (m runnerModel) logPaginationLabel() string {
-	if !m.ready || m.filterMenu {
+	if !m.ready || m.filterMenu || m.rerunMenu {
 		return ""
 	}
 	return formatLogPagination(viewportPagination(m.viewport), m.followTail)

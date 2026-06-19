@@ -133,6 +133,6 @@ func runnerLogArrowScroll(msg tea.KeyMsg) bool {
 		key.Matches(msg, runnerLogKeys.ScrollUp) || key.Matches(msg, runnerLogKeys.ScrollDown)
 }
 
-const logScrollHelp = "pgup/pgdn line  ctrl+u/d page  f filter  q quit"
-const logScrollHelpHistory = "history  pgdn to live  pgup/pgdn line  ctrl+u/d page  f filter  q quit"
+const logScrollHelp = "pgup/pgdn line  ctrl+u/d page  f filter  r re-run  q quit"
+const logScrollHelpHistory = "history  pgdn to live  pgup/pgdn line  ctrl+u/d page  f filter  r re-run  q quit"
 const logScrollHelpAttached = "pgup/pgdn line  ctrl+u/d page  q quit"

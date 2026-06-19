@@ -58,6 +58,62 @@ func TestFilterMenuIndex(t *testing.T) {
 	}
 }
 
+func TestOpenRerunMenuSelectsAllRunning(t *testing.T) {
+	m := runnerModel{serviceIDs: []string{"backend", "ui"}}
+	m.openRerunMenu()
+
+	if !m.rerunMenu {
+		t.Fatal("expected rerun menu open")
+	}
+	if !m.rerunSelected["backend"] || !m.rerunSelected["ui"] {
+		t.Fatalf("expected all services selected: %v", m.rerunSelected)
+	}
+}
+
+func TestRerunChosenIDs(t *testing.T) {
+	m := runnerModel{
+		serviceIDs: []string{"backend", "ui"},
+		rerunSelected: map[string]bool{
+			"backend": true,
+			"ui":      false,
+		},
+	}
+
+	chosen := m.rerunChosenIDs()
+	if len(chosen) != 1 || chosen[0] != "backend" {
+		t.Fatalf("chosen = %v, want [backend]", chosen)
+	}
+}
+
+func TestApplyRerunResolvesDependencies(t *testing.T) {
+	m := runnerModel{
+		cfg: &config.Config{
+			Services: map[string]config.Service{
+				"db":      {Label: "DB", Command: "true"},
+				"backend": {Label: "Backend", Command: "true", DependsOn: []string{"db"}},
+			},
+		},
+		serviceIDs: []string{"db", "backend"},
+		rerunSelected: map[string]bool{
+			"backend": true,
+			"db":      false,
+		},
+		rerunMenu: true,
+		done:      true,
+	}
+
+	next, cmd := m.applyRerun([]string{"backend"})
+	if cmd == nil {
+		t.Fatal("expected restart command")
+	}
+	if len(next.serviceIDs) != 2 {
+		t.Fatalf("serviceIDs = %v, want db and backend", next.serviceIDs)
+	}
+	if next.rerunMenu || next.done {
+		t.Fatalf("expected rerun menu closed and running state: %+v", next)
+	}
+}
+
 func TestRefreshLogViewportPreservesHistoryScroll(t *testing.T) {
 	m := runnerModel{
 		ready:      true,
