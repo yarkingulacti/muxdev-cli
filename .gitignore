@@ -9,5 +9,6 @@
 
 # Go build artifacts
 /dist/
+/tmp/
 /muxdev
 /muxdev.exe

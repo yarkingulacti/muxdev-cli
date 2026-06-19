@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "tag": "v1.0.0",
+  "base_url": "http://5.178.111.150:8081/repository/muxdev-releases/stable/v1.0.0",
+  "checksums": "http://5.178.111.150:8081/repository/muxdev-releases/stable/v1.0.0/checksums.txt",
+  "assets": {
+    "linux_amd64": "muxdev_1.0.0_linux_amd64.tar.gz",
+    "linux_arm64": "muxdev_1.0.0_linux_arm64.tar.gz",
+    "darwin_amd64": "muxdev_1.0.0_darwin_amd64.tar.gz",
+    "darwin_arm64": "muxdev_1.0.0_darwin_arm64.tar.gz",
+    "windows_amd64": "muxdev_1.0.0_windows_amd64.zip",
+    "windows_arm64": "muxdev_1.0.0_windows_arm64.zip"
+  }
+}

@@ -1,19 +1,23 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/yarkingulacti/muxdev-cli/internal/config"
+	"github.com/yarkingulacti/muxdev-cli/internal/portdiscover"
 )
 
 type ConfigureOptions struct {
 	OutputPath string
 	Force      bool
 	Edit       bool
+	Init       bool
 	WorkDir    string
 }
 
@@ -26,11 +30,13 @@ const (
 	phaseCfgServiceID
 	phaseCfgServiceLabel
 	phaseCfgServiceCommand
+	phaseCfgServicePortDiscover
 	phaseCfgServicePort
 	phaseCfgServiceDeps
 	phaseCfgAddAnother
 	phaseCfgPreview
 	phaseCfgConfirm
+	phaseCfgDone
 )
 
 type configureModel struct {
@@ -40,9 +46,13 @@ type configureModel struct {
 	height     int
 	outputPath string
 	force      bool
+	init       bool
+	workDir    string
 	errMsg     string
 	done       bool
 	aborted    bool
+
+	portDiscoverNote string
 
 	name     string
 	subtitle string
@@ -97,11 +107,13 @@ func newConfigureModel(opts ConfigureOptions) configureModel {
 	ti.Width = 50
 
 	return configureModel{
-		phase:      phaseCfgWelcome,
-		input:      ti,
-		outputPath: opts.OutputPath,
-		force:      opts.Force,
-		services:   make(map[string]config.Service),
+		phase:       phaseCfgWelcome,
+		input:       ti,
+		outputPath:  opts.OutputPath,
+		force:       opts.Force,
+		init:        opts.Init,
+		workDir:     opts.WorkDir,
+		services:    make(map[string]config.Service),
 		depSelected: make(map[string]bool),
 	}
 }
@@ -112,6 +124,8 @@ func (m configureModel) Init() tea.Cmd {
 
 func (m configureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case portDiscoverMsg:
+		return m.handlePortDiscover(msg)
 	case tea.KeyMsg:
 		switch m.phase {
 		case phaseCfgWelcome:
@@ -120,8 +134,16 @@ func (m configureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleDeps(msg)
 		case phaseCfgAddAnother, phaseCfgConfirm:
 			return m.handleYesNo(msg)
+		case phaseCfgServicePortDiscover:
+			if msg.String() == "ctrl+c" || msg.String() == "esc" || msg.String() == "q" {
+				m.aborted = true
+				return m, tea.Quit
+			}
+			return m, nil
 		case phaseCfgPreview:
 			return m.handlePreview(msg)
+		case phaseCfgDone:
+			return m.handleDone(msg)
 		default:
 			return m.handleTextInput(msg)
 		}
@@ -178,8 +200,12 @@ func (m *configureModel) advanceFromInput() (tea.Model, tea.Cmd) {
 		m.subtitle = value
 		m.phase = phaseCfgServiceID
 		m.input.SetValue("")
-		m.input.Placeholder = "backend"
+		m.input.Placeholder = ""
 	case phaseCfgServiceID:
+		if value == "" {
+			m.errMsg = "type a service id, then press enter (e.g. backend, ui)"
+			return m, nil
+		}
 		id, err := config.NormalizeServiceID(value)
 		if err != nil {
 			m.errMsg = err.Error()
@@ -209,9 +235,9 @@ func (m *configureModel) advanceFromInput() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.currentService.Command = value
-		m.phase = phaseCfgServicePort
-		m.input.SetValue(m.currentService.Port)
-		m.input.Placeholder = "${PORT} (optional)"
+		m.phase = phaseCfgServicePortDiscover
+		m.portDiscoverNote = ""
+		return m, m.discoverPortCmd()
 	case phaseCfgServicePort:
 		m.currentService.Port = value
 		if len(m.services) == 0 {
@@ -225,6 +251,39 @@ func (m *configureModel) advanceFromInput() (tea.Model, tea.Cmd) {
 	default:
 		return m, nil
 	}
+	m.input.Focus()
+	return m, textinput.Blink
+}
+
+type portDiscoverMsg struct {
+	port string
+	err  error
+}
+
+func (m configureModel) discoverPortCmd() tea.Cmd {
+	workDir := m.workDir
+	command := m.currentService.Command
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		defer cancel()
+		port, err := portdiscover.Discover(ctx, workDir, command)
+		return portDiscoverMsg{port: port, err: err}
+	}
+}
+
+func (m configureModel) handlePortDiscover(msg portDiscoverMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		m.portDiscoverNote = "Could not detect port automatically — enter one manually or leave blank."
+	} else if msg.port != "" {
+		m.currentService.Port = msg.port
+		m.portDiscoverNote = fmt.Sprintf("Detected port %s from command output.", msg.port)
+	} else {
+		m.portDiscoverNote = "No port found in command output — enter one manually or leave blank."
+	}
+
+	m.phase = phaseCfgServicePort
+	m.input.SetValue(m.currentService.Port)
+	m.input.Placeholder = "${PORT} (optional)"
 	m.input.Focus()
 	return m, textinput.Blink
 }
@@ -277,7 +336,7 @@ func (m configureModel) handleYesNo(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.phase == phaseCfgAddAnother {
 			m.phase = phaseCfgServiceID
 			m.input.SetValue("")
-			m.input.Placeholder = "ui"
+			m.input.Placeholder = ""
 			m.input.Focus()
 			return m, textinput.Blink
 		}
@@ -318,6 +377,14 @@ func (m configureModel) handlePreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m configureModel) handleDone(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q", "esc", "enter", " ":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
 func (m *configureModel) saveAndQuit() (tea.Model, tea.Cmd) {
 	cfg := &config.Config{
 		Name:     m.name,
@@ -330,7 +397,8 @@ func (m *configureModel) saveAndQuit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.done = true
-	return m, tea.Quit
+	m.phase = phaseCfgDone
+	return m, nil
 }
 
 func (m configureModel) sortedServiceIDs() []string {
@@ -353,8 +421,12 @@ func (m configureModel) View() string {
 		return "Loading..."
 	}
 
+	if m.done {
+		return m.renderDone()
+	}
+
 	var b strings.Builder
-	b.WriteString(renderHeader(&config.Config{Name: "muxdev configure", Subtitle: "Interactive configuration"}, m.width, m.phaseTitle()))
+	b.WriteString(m.renderConfigureHeader())
 	b.WriteString("\n")
 
 	if m.errMsg != "" {
@@ -363,10 +435,10 @@ func (m configureModel) View() string {
 
 	switch m.phase {
 	case phaseCfgWelcome:
-		b.WriteString("Create a new muxdev.yaml step by step.\n\n")
-		b.WriteString(mutedStyle.Render("Press enter to start, q to quit"))
+		b.WriteString(m.renderWelcome())
 	case phaseCfgServiceDeps:
-		b.WriteString(fmt.Sprintf("Dependencies for %q (optional)\n\n", m.currentID))
+		b.WriteString(fmt.Sprintf("Which services must start before %q?\n\n", m.currentID))
+		b.WriteString(mutedStyle.Render("Select dependencies if this service needs others running first (e.g. API before UI).\n\n"))
 		ids := m.sortedServiceIDs()
 		for i, id := range ids {
 			marker := "  "
@@ -377,34 +449,103 @@ func (m configureModel) View() string {
 			if m.depSelected[id] {
 				check = selectedStyle.Render("[x]")
 			}
-			b.WriteString(fmt.Sprintf("%s%s %s\n", marker, check, id))
+			svc := m.services[id]
+			b.WriteString(fmt.Sprintf("%s%s %s (%s)\n", marker, check, svc.Label, id))
 		}
 		b.WriteString("\n")
 		b.WriteString(helpStyle.Render("↑/↓ move  space toggle  enter continue"))
 	case phaseCfgAddAnother:
-		b.WriteString(fmt.Sprintf("Saved service. Total: %d\n\n", len(m.services)))
+		b.WriteString(fmt.Sprintf("Service saved. You now have %d service(s).\n\n", len(m.services)))
 		b.WriteString("Add another service?\n")
-		b.WriteString(helpStyle.Render("y yes  n no / enter"))
+		b.WriteString(helpStyle.Render("y yes  n no / enter to finish"))
 	case phaseCfgPreview:
+		b.WriteString("Review your configuration before saving:\n\n")
 		b.WriteString(m.previewYAML())
 		b.WriteString("\n")
-		b.WriteString(helpStyle.Render("enter to save  q quit"))
+		b.WriteString(helpStyle.Render("enter to continue  q quit"))
 	case phaseCfgConfirm:
-		b.WriteString(fmt.Sprintf("Write %s?\n\n", m.outputPath))
+		b.WriteString(fmt.Sprintf("Save configuration to %s?\n\n", m.outputPath))
+		b.WriteString(mutedStyle.Render("You can edit this file later with `muxdev configure`.\n\n"))
 		b.WriteString(helpStyle.Render("y save  n cancel"))
+	case phaseCfgServicePortDiscover:
+		b.WriteString(fmt.Sprintf("Running %q to detect its port...\n\n", m.currentService.Command))
+		b.WriteString(mutedStyle.Render("This starts the dev command briefly and scans logs for localhost URLs.\n"))
+		b.WriteString(mutedStyle.Render("It may take a few seconds. Press ctrl+c to cancel.\n"))
 	default:
 		b.WriteString(m.phasePrompt())
+		if hint := m.phaseHint(); hint != "" {
+			b.WriteString("\n")
+			b.WriteString(mutedStyle.Render(hint))
+		}
+		if m.portDiscoverNote != "" && m.phase == phaseCfgServicePort {
+			b.WriteString("\n")
+			b.WriteString(selectedStyle.Render(m.portDiscoverNote))
+		}
 		b.WriteString("\n\n")
 		b.WriteString(m.input.View())
 		b.WriteString("\n\n")
 		b.WriteString(helpStyle.Render("enter continue  esc quit"))
 	}
 
-	if m.done {
+	return b.String()
+}
+
+func (m configureModel) renderConfigureHeader() string {
+	name := "muxdev configure"
+	subtitle := "Interactive configuration"
+	if m.init {
+		name = "muxdev init"
+		subtitle = "Set up your project"
+	}
+	return renderHeader(&config.Config{Name: name, Subtitle: subtitle}, m.width, m.phaseTitle())
+}
+
+func (m configureModel) renderWelcome() string {
+	var b strings.Builder
+
+	if m.init {
+		b.WriteString(renderLogo(m.width))
 		b.WriteString("\n\n")
-		b.WriteString(selectedStyle.Render("Saved "+m.outputPath))
+		b.WriteString("Welcome! This wizard creates a ")
+		b.WriteString(selectedStyle.Render("muxdev.yaml"))
+		b.WriteString(" manifest for your project.\n\n")
+		b.WriteString("muxdev runs your local dev services together in one interactive terminal — pick services, stream logs, and shut down cleanly.\n\n")
+		b.WriteString("You'll configure:\n")
+		b.WriteString("  • Project name and subtitle (shown in the TUI header)\n")
+		b.WriteString("  • Dev services — command, port auto-detection, and dependencies\n")
+		b.WriteString("  • A preview before anything is written to disk\n\n")
+		b.WriteString(fmt.Sprintf("Output file: %s\n\n", m.outputPath))
+		b.WriteString(helpStyle.Render("enter to begin  q to quit"))
+		return b.String()
 	}
 
+	b.WriteString("Create or update your muxdev.yaml step by step.\n\n")
+	b.WriteString(fmt.Sprintf("Output file: %s\n\n", m.outputPath))
+	b.WriteString(helpStyle.Render("enter to start  q to quit"))
+	return b.String()
+}
+
+func (m configureModel) renderDone() string {
+	var b strings.Builder
+	if m.init {
+		b.WriteString(renderLogo(m.width))
+		b.WriteString("\n\n")
+	}
+	b.WriteString(m.renderConfigureHeader())
+	b.WriteString("\n\n")
+	b.WriteString(selectedStyle.Render("✓ Saved "+m.outputPath))
+	b.WriteString("\n\n")
+	b.WriteString("You're all set! Next steps:\n\n")
+	b.WriteString("  ")
+	b.WriteString(selectedStyle.Render("muxdev"))
+	b.WriteString("          Start the interactive dev stack\n")
+	b.WriteString("  ")
+	b.WriteString(selectedStyle.Render("muxdev --list"))
+	b.WriteString("   List configured services\n")
+	b.WriteString("  ")
+	b.WriteString(selectedStyle.Render("muxdev configure"))
+	b.WriteString("  Edit this setup later\n\n")
+	b.WriteString(helpStyle.Render("press any key to exit"))
 	return b.String()
 }
 
@@ -422,6 +563,8 @@ func (m configureModel) phaseTitle() string {
 		return "Service label"
 	case phaseCfgServiceCommand:
 		return "Command"
+	case phaseCfgServicePortDiscover:
+		return "Port discovery"
 	case phaseCfgServicePort:
 		return "Port"
 	case phaseCfgServiceDeps:
@@ -432,6 +575,8 @@ func (m configureModel) phaseTitle() string {
 		return "Preview"
 	case phaseCfgConfirm:
 		return "Confirm"
+	case phaseCfgDone:
+		return "Done"
 	default:
 		return "Configure"
 	}
@@ -440,17 +585,36 @@ func (m configureModel) phaseTitle() string {
 func (m configureModel) phasePrompt() string {
 	switch m.phase {
 	case phaseCfgName:
-		return "Project name:"
+		return "What is your project called?"
 	case phaseCfgSubtitle:
-		return "Subtitle (optional):"
+		return "Add a short subtitle (optional):"
 	case phaseCfgServiceID:
-		return "Service ID (e.g. backend, ui):"
+		return "Service ID — a short identifier used in CLI flags:"
 	case phaseCfgServiceLabel:
-		return fmt.Sprintf("Label for %q:", m.currentID)
+		return fmt.Sprintf("Display name for %q:", m.currentID)
 	case phaseCfgServiceCommand:
-		return fmt.Sprintf("Command for %q:", m.currentID)
+		return fmt.Sprintf("Shell command to start %q:", m.currentID)
 	case phaseCfgServicePort:
 		return fmt.Sprintf("Port for %q (optional):", m.currentID)
+	default:
+		return ""
+	}
+}
+
+func (m configureModel) phaseHint() string {
+	switch m.phase {
+	case phaseCfgName:
+		return "Shown in the TUI header when you run muxdev."
+	case phaseCfgSubtitle:
+		return "e.g. \"Local development stack\" — leave blank to skip."
+	case phaseCfgServiceID:
+		return "Lowercase letters, numbers, and hyphens — e.g. backend, ui, worker."
+	case phaseCfgServiceLabel:
+		return "Human-readable name shown in the service picker."
+	case phaseCfgServiceCommand:
+		return "e.g. npm run dev, go run ./cmd/api, docker compose up."
+	case phaseCfgServicePort:
+		return "Confirm or edit the detected port — leave blank to skip."
 	default:
 		return ""
 	}

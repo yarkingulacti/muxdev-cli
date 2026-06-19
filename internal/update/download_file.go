@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+
+	"github.com/yarkingulacti/muxdev-cli/internal/version"
 )
 
 func downloadToFile(ctx context.Context, asset Asset, dest string) error {
@@ -13,7 +15,7 @@ func downloadToFile(ctx context.Context, asset Asset, dest string) error {
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", userAgent)
+	setRequestHeaders(req, version.Short())
 
 	resp, err := httpClient.Do(req)
 	if err != nil {

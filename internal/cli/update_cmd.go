@@ -21,6 +21,7 @@ func newUpdateCmd() *cobra.Command {
 		target       string
 		channel      string
 		applyPending bool
+		updateURL    string
 	)
 
 	cmd := &cobra.Command{
@@ -35,8 +36,9 @@ func newUpdateCmd() *cobra.Command {
 			defer cancel()
 
 			result, err := update.Check(ctx, update.CheckOptions{
-				Channel: update.Channel(channel),
-				Target:  target,
+				Channel:     update.Channel(channel),
+				Target:      target,
+				ManifestURL: updateURL,
 			})
 			if err != nil {
 				return err
@@ -96,12 +98,16 @@ func newUpdateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&target, "version", "", "Target version tag (e.g. v0.2.0)")
 	cmd.Flags().StringVar(&channel, "channel", string(update.ChannelStable), "Release channel: stable or prerelease")
 	cmd.Flags().BoolVar(&applyPending, "apply-pending", false, "Apply a staged Windows update")
+	cmd.Flags().StringVar(&updateURL, "update-url", "", "Manifest URL (overrides MUXDEV_UPDATE_URL)")
 
 	return cmd
 }
 
 func printUpdateResult(result update.Result) {
 	fmt.Printf("muxdev %s (installed via %s)\n", strings.TrimPrefix(result.Current, "v"), result.InstallMethod)
+	if result.ManifestURL != "" {
+		fmt.Printf("Update source: %s\n", result.ManifestURL)
+	}
 	if result.UpdateAvailable {
 		fmt.Printf("Update available: %s\n", result.Latest)
 	} else {

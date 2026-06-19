@@ -80,6 +80,32 @@ muxdev version            # full build metadata
 muxdev version --short    # 0.1.0
 ```
 
+### Nexus / private artifact store
+
+Point the updater at a manifest URL (e.g. Nexus raw repo):
+
+```bash
+export MUXDEV_UPDATE_URL="http://5.178.111.150:8081/repository/muxdev-releases/stable/latest.json"
+muxdev update --check
+```
+
+Optional auth (when anonymous upload/read is disabled):
+
+```bash
+export MUXDEV_UPDATE_USER=deploy
+export MUXDEV_UPDATE_TOKEN=secret
+```
+
+Publish release artifacts with `scripts/release-nexus.sh v1.0.0` (requires `NEXUS_AUTH=user:pass` in `.env` or env).
+
+Verify an existing publish:
+
+```bash
+./scripts/verify-nexus.sh
+./scripts/test-nexus.sh          # offline + local fixture e2e
+./scripts/test-nexus.sh --live   # verify remote latest.json
+```
+
 Package manager installs should use their native upgrade commands (`brew upgrade`, `scoop update`, `winget upgrade`).
 
 ## Usage

@@ -13,8 +13,13 @@ func TestNormalizeServiceID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "web_ui" {
-		t.Fatalf("got %q, want web_ui", got)
+	if got != "web-ui" {
+		t.Fatalf("got %q, want web-ui", got)
+	}
+
+	got, err = config.NormalizeServiceID("web-ui")
+	if err != nil || got != "web-ui" {
+		t.Fatalf("web-ui: got %q err %v", got, err)
 	}
 
 	if _, err := config.NormalizeServiceID("9bad"); err == nil {

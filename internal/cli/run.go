@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,6 +21,22 @@ func run(opts Options, focus string) error {
 	cfgPath, err := resolveConfigPath(opts.ConfigPath)
 	if err != nil {
 		return err
+	}
+
+	if !config.Exists(cfgPath) {
+		if opts.List {
+			return fmt.Errorf("%s not found", cfgPath)
+		}
+		interactive := !opts.NoInteractive && isTerminal(os.Stdout)
+		if !interactive {
+			return fmt.Errorf("%s not found (run `muxdev init` to create it)", cfgPath)
+		}
+		if err := runInitWizard(cfgPath); err != nil {
+			return err
+		}
+		if !config.Exists(cfgPath) {
+			return nil
+		}
 	}
 
 	cfg, err := config.Load(cfgPath)
@@ -89,7 +106,22 @@ func resolveConfigPath(explicit string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("get working directory: %w", err)
 	}
-	return config.FindDefault(cwd)
+	if path, err := config.FindDefault(cwd); err == nil {
+		return path, nil
+	}
+	return filepath.Join(cwd, config.DefaultFilename), nil
+}
+
+func runInitWizard(path string) error {
+	err := tui.RunConfigure(tui.ConfigureOptions{
+		OutputPath: path,
+		Init:       true,
+		WorkDir:    ".",
+	})
+	if errors.Is(err, tui.ErrAborted) {
+		return nil
+	}
+	return err
 }
 
 func parseFocus(raw string) []string {

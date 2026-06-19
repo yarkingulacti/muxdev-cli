@@ -28,6 +28,12 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Nexus automation tests
+        if: runner.os == 'Linux'
+        run: |
+          chmod +x scripts/*.sh scripts/nexus-manifest.py
+          ./scripts/test-nexus.sh
+
       - name: Build
         run: go build -o muxdev${{ matrix.os == 'windows-latest' && '.exe' || '' }} ./cmd/muxdev
 

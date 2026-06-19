@@ -69,5 +69,8 @@ Detay: [git-workflow.md](git-workflow.md)
 ## Notlar
 
 - Local build `muxdev version` → `dev (local build)` gösterir
+- Nexus güncellemeleri: `MUXDEV_UPDATE_URL=http://.../stable/latest.json muxdev update --check`
+- Nexus publish: `cp .env.example .env` → `NEXUS_AUTH` doldur → `./scripts/release-nexus.sh v1.0.0`
+- Nexus test: `./scripts/test-nexus.sh`
 - TUI ve `init`/`configure` gerçek terminal (TTY) ister
 - CI/pipe testleri için `--no-interactive` kullan

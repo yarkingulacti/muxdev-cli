@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/yarkingulacti/muxdev-cli/internal/config"
+	"github.com/yarkingulacti/muxdev-cli/internal/portkill"
 	"github.com/yarkingulacti/muxdev-cli/internal/runner"
 )
 
@@ -32,6 +33,12 @@ type runnerStartedMsg struct {
 	doneCh chan runDoneMsg
 }
 
+type portKillMsg struct {
+	port   int
+	killed int
+	err    error
+}
+
 type runnerModel struct {
 	cfg        *config.Config
 	serviceIDs []string
@@ -48,6 +55,11 @@ type runnerModel struct {
 	done       bool
 	mu         sync.Mutex
 	updateHint string
+
+	portConflict *portkill.Conflict
+	conflictNote string
+	awaitingKill bool
+	killPending  bool
 }
 
 func runLogs(cfg *config.Config, serviceIDs []string, workDir, updateHint string) error {
@@ -111,17 +123,46 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cancel = msg.cancel
 		m.logCh = msg.logCh
 		m.doneCh = msg.doneCh
+		m.done = false
+		m.conflictNote = ""
+		if m.ready {
+			m.viewport.SetContent(m.logContent())
+			m.viewport.GotoTop()
+		}
 		return m, tea.Batch(waitForLog(m.logCh), waitForDone(m.doneCh))
 	case logMsg:
 		m.appendLog(msg)
+		m.detectPortConflict(msg)
 		if m.ready {
 			m.viewport.SetContent(m.logContent())
 			m.viewport.GotoBottom()
 		}
 		return m, waitForLog(m.logCh)
+	case portKillMsg:
+		m.killPending = false
+		if msg.err != nil {
+			m.conflictNote = errStyle.Render(fmt.Sprintf("Could not free port %d: %v", msg.port, msg.err))
+		} else {
+			m.clearLogs()
+			m.portConflict = nil
+			m.awaitingKill = false
+			m.runErr = nil
+		}
+		if msg.err == nil {
+			if m.cancel != nil {
+				m.cancel()
+			}
+			return m, m.startRunner()
+		}
+		return m, nil
 	case runDoneMsg:
-		m.done = true
 		m.runErr = msg.err
+		if m.portConflict != nil && m.portConflict.Fatal {
+			m.awaitingKill = true
+			m.conflictNote = warnStyle.Render(m.portConflict.Message() + " — press k to kill & restart")
+			return m, nil
+		}
+		m.done = true
 		if m.cancel != nil {
 			m.cancel()
 		}
@@ -129,12 +170,33 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
+			if m.awaitingKill {
+				m.done = true
+			}
 			if m.cancel != nil {
 				m.cancel()
 			}
 			return m, tea.Quit
+		case "k", "K":
+			if m.killPending || m.portConflict == nil {
+				return m, nil
+			}
+			m.killPending = true
+			port := m.portConflict.Port
+			return m, killPortCmd(port)
+		case "n", "N", "enter":
+			if m.awaitingKill {
+				m.awaitingKill = false
+				m.portConflict = nil
+				m.conflictNote = mutedStyle.Render("Port conflict ignored.")
+				if m.runErr != nil {
+					m.done = true
+					return m, tea.Quit
+				}
+			}
+			return m, nil
 		}
-		if m.ready {
+		if m.ready && !m.awaitingKill {
 			var cmd tea.Cmd
 			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
@@ -162,12 +224,33 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *runnerModel) detectPortConflict(msg logMsg) {
+	conflict, ok := portkill.ParseConflict(msg.text)
+	if !ok {
+		return
+	}
+	if m.portConflict != nil && m.portConflict.Port == conflict.Port && m.portConflict.Fatal {
+		return
+	}
+	if m.portConflict == nil || conflict.Fatal || conflict.Port != m.portConflict.Port {
+		m.portConflict = &conflict
+	}
+	if conflict.Fatal {
+		m.conflictNote = warnStyle.Render(conflict.Message() + " — press k to kill & restart")
+	} else if m.conflictNote == "" {
+		m.conflictNote = mutedStyle.Render(conflict.Message() + " — press k to free port")
+	}
+}
+
 func (m runnerModel) View() string {
 	if m.width == 0 {
 		return "Starting..."
 	}
 
 	status := fmt.Sprintf("Running: %s", strings.Join(m.serviceIDs, ", "))
+	if m.awaitingKill {
+		status = "Port conflict — action required"
+	}
 	header := renderHeader(m.cfg, m.width, status)
 
 	var body string
@@ -177,11 +260,29 @@ func (m runnerModel) View() string {
 		body = mutedStyle.Render("Waiting for logs...")
 	}
 
-	footer := helpStyle.Render("↑/↓ scroll  pgup/pgdn  q quit")
-	if m.updateHint != "" {
-		footer = helpStyle.Render(m.updateHint + "  |  ↑/↓ scroll  pgup/pgdn  q quit")
-	}
+	footer := m.renderFooter()
 	return lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+}
+
+func (m runnerModel) renderFooter() string {
+	if m.conflictNote != "" {
+		hint := "k kill & restart  n ignore  q quit"
+		if m.killPending {
+			hint = "freeing port..."
+		}
+		return helpStyle.Render(m.conflictNote + "  |  " + hint)
+	}
+	base := "↑/↓ scroll  pgup/pgdn  q quit"
+	if m.updateHint != "" {
+		base = m.updateHint + "  |  " + base
+	}
+	return helpStyle.Render(base)
+}
+
+func (m *runnerModel) clearLogs() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lines = m.lines[:0]
 }
 
 func (m *runnerModel) appendLog(msg logMsg) {
@@ -223,3 +324,12 @@ func waitForDone(ch chan runDoneMsg) tea.Cmd {
 		return <-ch
 	}
 }
+
+func killPortCmd(port int) tea.Cmd {
+	return func() tea.Msg {
+		killed, err := portkill.KillPort(port)
+		return portKillMsg{port: port, killed: killed, err: err}
+	}
+}
+
+var warnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))

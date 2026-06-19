@@ -7,16 +7,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"golang.org/x/mod/semver"
 
 	"github.com/yarkingulacti/muxdev-cli/internal/version"
 )
-
-const userAgent = "muxdev-updater"
-
-var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 type Release struct {
 	TagName     string `json:"tag_name"`
@@ -33,16 +28,18 @@ type Asset struct {
 }
 
 type Result struct {
-	Current        string
-	Latest         string
+	Current         string
+	Latest          string
 	UpdateAvailable bool
-	Release        Release
-	InstallMethod  InstallMethod
+	Release         Release
+	InstallMethod   InstallMethod
+	ManifestURL     string
 }
 
 type CheckOptions struct {
-	Channel Channel
-	Target  string
+	Channel     Channel
+	Target      string
+	ManifestURL string
 }
 
 func Check(ctx context.Context, opts CheckOptions) (Result, error) {
@@ -69,16 +66,43 @@ func Check(ctx context.Context, opts CheckOptions) (Result, error) {
 		latest = "v" + latest
 	}
 
+	manifestURL := ""
+	base := strings.TrimSpace(opts.ManifestURL)
+	if base == "" {
+		base = manifestURLFromEnv()
+	}
+	if base != "" {
+		manifestURL = resolveManifestURL(base, opts.Target)
+	}
+
 	return Result{
 		Current:         current,
 		Latest:          latest,
 		UpdateAvailable: semver.Compare(latest, current) > 0,
 		Release:         release,
 		InstallMethod:   method,
+		ManifestURL:     manifestURL,
 	}, nil
 }
 
 func fetchRelease(ctx context.Context, opts CheckOptions) (Release, error) {
+	manifestBase := strings.TrimSpace(opts.ManifestURL)
+	if manifestBase == "" {
+		manifestBase = manifestURLFromEnv()
+	}
+	if manifestBase != "" {
+		if opts.Channel == ChannelPrerelease {
+			return Release{}, fmt.Errorf("prerelease channel is not supported with manifest updates")
+		}
+		manifestURL := resolveManifestURL(manifestBase, opts.Target)
+		manifest, err := fetchManifest(ctx, manifestURL)
+		if err != nil {
+			return Release{}, err
+		}
+		release := manifest.toRelease()
+		return release, nil
+	}
+
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/tags/%s", RepoOwner, RepoName, strings.TrimPrefix(opts.Target, "v"))
 	if opts.Target == "" {
 		if opts.Channel == ChannelPrerelease {
@@ -93,7 +117,7 @@ func fetchRelease(ctx context.Context, opts CheckOptions) (Release, error) {
 		return Release{}, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", userAgent+"/"+version.Short())
+	setRequestHeaders(req, version.Short())
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -103,7 +127,7 @@ func fetchRelease(ctx context.Context, opts CheckOptions) (Release, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return Release{}, fmt.Errorf("github api %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return Release{}, fmt.Errorf("github api: %w", httpStatusError(resp.StatusCode, string(body)))
 	}
 
 	var release Release
@@ -119,7 +143,7 @@ func fetchLatestFromList(ctx context.Context, url string, stableOnly bool) (Rele
 		return Release{}, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", userAgent+"/"+version.Short())
+	setRequestHeaders(req, version.Short())
 
 	resp, err := httpClient.Do(req)
 	if err != nil {

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -83,7 +84,8 @@ func ExitCode(err error) int {
 	if err == nil {
 		return 0
 	}
-	if ee, ok := err.(exitError); ok {
+	var ee exitError
+	if errors.As(err, &ee) {
 		return ee.code
 	}
 	return 1

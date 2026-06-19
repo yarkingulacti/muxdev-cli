@@ -19,8 +19,15 @@ func newInitCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Create muxdev.yaml interactively",
-		Long:  "Run an interactive wizard to generate a project muxdev.yaml manifest.",
+		Short: "Create muxdev.yaml with an interactive setup wizard",
+		Long: `Create a muxdev.yaml manifest for your project using an interactive wizard.
+
+The wizard walks you through project metadata, dev services (commands, ports,
+dependencies), and shows a preview before writing the file.
+
+Run from your project root:
+
+  muxdev init`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !term.IsTerminal(int(os.Stdout.Fd())) {
 				return errors.New("init requires an interactive terminal; use a TTY")
@@ -29,10 +36,15 @@ func newInitCmd() *cobra.Command {
 			if path == "" {
 				path = config.DefaultFilename
 			}
-			err := tui.RunConfigure(tui.ConfigureOptions{
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			err = tui.RunConfigure(tui.ConfigureOptions{
 				OutputPath: path,
 				Force:      force,
-				WorkDir:    ".",
+				Init:       true,
+				WorkDir:    cwd,
 			})
 			if errors.Is(err, tui.ErrAborted) {
 				return nil
@@ -63,11 +75,11 @@ func newConfigureCmd() *cobra.Command {
 				return errors.New("configure requires an interactive terminal; use a TTY")
 			}
 			path := output
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
 			if path == "" {
-				cwd, err := os.Getwd()
-				if err != nil {
-					return err
-				}
 				found, err := config.FindDefault(cwd)
 				if err != nil {
 					path = config.DefaultFilename
@@ -75,11 +87,11 @@ func newConfigureCmd() *cobra.Command {
 					path = found
 				}
 			}
-			err := tui.RunConfigure(tui.ConfigureOptions{
+			err = tui.RunConfigure(tui.ConfigureOptions{
 				OutputPath: path,
 				Force:      force,
 				Edit:       true,
-				WorkDir:    ".",
+				WorkDir:    cwd,
 			})
 			if errors.Is(err, tui.ErrAborted) {
 				return nil

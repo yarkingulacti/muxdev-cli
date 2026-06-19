@@ -49,3 +49,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+      - name: Upload to Nexus
+        env:
+          NEXUS_URL: ${{ secrets.NEXUS_URL }}
+          NEXUS_REPO: ${{ secrets.NEXUS_REPO }}
+          NEXUS_AUTH: ${{ secrets.NEXUS_AUTH }}
+          DIST_DIR: dist
+        run: |
+          if [ -z "${NEXUS_URL:-}" ]; then
+            echo "Skipping Nexus upload (NEXUS_URL secret not set)"
+            exit 0
+          fi
+          TAG="${GITHUB_REF_NAME}"
+          chmod +x scripts/upload-nexus.sh scripts/verify-nexus.sh
+          ./scripts/upload-nexus.sh "$TAG"
+          ./scripts/verify-nexus.sh
