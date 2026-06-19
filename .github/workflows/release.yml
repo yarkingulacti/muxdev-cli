@@ -63,7 +63,7 @@ jobs:
         run: |
           ARGS=(release --clean --release-notes=release-notes.md)
           if [ -z "${TAP_GITHUB_TOKEN:-}" ]; then
-            ARGS+=(--skip=brew --skip=scoop)
+            ARGS+=(--skip=homebrew --skip=scoop)
           fi
           "$(go env GOPATH)/bin/goreleaser" "${ARGS[@]}"
 

@@ -78,7 +78,7 @@ jobs:
           ARGS=(release --clean --release-notes=release-notes.md)
           if [ -z "${TAP_GITHUB_TOKEN:-}" ]; then
             echo "TAP_GITHUB_TOKEN not set — skipping homebrew/scoop publish"
-            ARGS+=(--skip=brew --skip=scoop)
+            ARGS+=(--skip=homebrew --skip=scoop)
           fi
           goreleaser "${ARGS[@]}"
 
