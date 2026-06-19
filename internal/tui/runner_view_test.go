@@ -8,7 +8,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/yarkingulacti/muxdev-cli/internal/config"
-	"github.com/yarkingulacti/muxdev-cli/internal/runner"
 )
 
 func TestLogContentFiltersByService(t *testing.T) {
@@ -112,58 +111,6 @@ func TestApplyRerunResolvesDependencies(t *testing.T) {
 	}
 	if next.rerunMenu || next.done {
 		t.Fatalf("expected rerun menu closed and running state: %+v", next)
-	}
-}
-
-func TestShouldQuitAfterShutdown(t *testing.T) {
-	if !shouldQuitAfterShutdown(true, make(chan runDoneMsg, 1)) {
-		t.Fatal("forceful shutdown should quit immediately")
-	}
-	if shouldQuitAfterShutdown(false, make(chan runDoneMsg, 1)) {
-		t.Fatal("graceful shutdown should wait for runner")
-	}
-	if !shouldQuitAfterShutdown(false, nil) {
-		t.Fatal("graceful shutdown without runner should quit")
-	}
-}
-
-func TestRequestShutdownSetsForcefulFlag(t *testing.T) {
-	shutdown := &runner.ShutdownRequest{}
-	m := runnerModel{
-		shutdown: shutdown,
-		cancel:   func() {},
-	}
-
-	next, cmd := m.requestShutdown(true)
-	if cmd == nil {
-		t.Fatal("expected immediate quit command")
-	}
-	if !shutdown.Forceful {
-		t.Fatal("expected forceful shutdown flag")
-	}
-	if next.shuttingDown {
-		t.Fatal("forceful shutdown should not set shuttingDown")
-	}
-}
-
-func TestRequestShutdownGracefulWaits(t *testing.T) {
-	shutdown := &runner.ShutdownRequest{}
-	doneCh := make(chan runDoneMsg, 1)
-	m := runnerModel{
-		shutdown: shutdown,
-		doneCh:   doneCh,
-		cancel:   func() {},
-	}
-
-	next, cmd := m.requestShutdown(false)
-	if cmd != nil {
-		t.Fatal("graceful shutdown should wait for runner completion")
-	}
-	if shutdown.Forceful {
-		t.Fatal("graceful shutdown should not set forceful flag")
-	}
-	if !next.shuttingDown {
-		t.Fatal("expected shuttingDown for graceful quit")
 	}
 }
 

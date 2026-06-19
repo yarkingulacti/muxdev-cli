@@ -68,6 +68,7 @@ Use muxdev help for the interactive local guide.`,
 	root.AddCommand(newUpdateCmd())
 	root.AddCommand(newInitCmd())
 	root.AddCommand(newConfigureCmd())
+	root.AddCommand(newRemoveCmd())
 
 	registerHelp(root)
 

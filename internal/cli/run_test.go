@@ -45,6 +45,33 @@ func TestResolveConfigPathErrorsWhenNotFound(t *testing.T) {
 	}
 }
 
+func TestResolveRunConfigPathDefaultsToCwdWhenMissing(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	path, err := resolveRunConfigPath("")
+	if err != nil {
+		t.Fatalf("resolveRunConfigPath() error = %v", err)
+	}
+	want := filepath.Join(dir, config.DefaultFilename)
+	if path != want {
+		t.Fatalf("path = %q, want %q", path, want)
+	}
+}
+
+func TestResolveRunConfigPathUsesExplicitWhenMissing(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	path, err := resolveRunConfigPath("./custom.yaml")
+	if err != nil {
+		t.Fatalf("resolveRunConfigPath() error = %v", err)
+	}
+	if path != "./custom.yaml" {
+		t.Fatalf("path = %q, want ./custom.yaml", path)
+	}
+}
+
 func TestResolveConfigPathFindsParent(t *testing.T) {
 	root := t.TempDir()
 	sub := filepath.Join(root, "apps", "ui")

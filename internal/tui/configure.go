@@ -70,6 +70,7 @@ type ConfigureOptions struct {
 	Force      bool
 	Edit       bool
 	Init       bool
+	FromRun    bool
 	WorkDir    string
 }
 
@@ -77,6 +78,7 @@ type configurePhase int
 
 const (
 	phaseCfgWelcome configurePhase = iota
+	phaseCfgSetupPrompt
 	phaseCfgRootMenu
 	phaseCfgName
 	phaseCfgSubtitle
@@ -103,9 +105,11 @@ type configureModel struct {
 	height     int
 	outputPath string
 	force      bool
-	init       bool
-	edit       bool
-	workDir    string
+	init            bool
+	fromRun         bool
+	edit            bool
+	workDir         string
+	devCommandHint  string
 	errMsg     string
 	done       bool
 	aborted    bool
@@ -176,16 +180,24 @@ func newConfigureModel(opts ConfigureOptions) configureModel {
 	ti.CharLimit = 256
 	ti.Width = 50
 
+	phase := phaseCfgWelcome
+	if opts.Init && opts.FromRun {
+		phase = phaseCfgSetupPrompt
+	}
+
 	return configureModel{
-		phase:       phaseCfgWelcome,
-		input:       ti,
-		outputPath:  opts.OutputPath,
-		force:       opts.Force,
-		init:        opts.Init,
-		edit:        opts.Edit,
-		workDir:     opts.WorkDir,
-		services:    make(map[string]config.Service),
-		depSelected: make(map[string]bool),
+		phase:          phase,
+		input:          ti,
+		outputPath:     opts.OutputPath,
+		force:          opts.Force,
+		init:           opts.Init,
+		fromRun:        opts.FromRun,
+		edit:           opts.Edit,
+		workDir:        opts.WorkDir,
+		name:           guessProjectName(opts.WorkDir),
+		devCommandHint: guessDevCommand(opts.WorkDir),
+		services:       make(map[string]config.Service),
+		depSelected:    make(map[string]bool),
 	}
 }
 
@@ -204,6 +216,8 @@ func (m *configureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.phase {
 		case phaseCfgWelcome:
 			return m.handleWelcome(msg)
+		case phaseCfgSetupPrompt:
+			return m.handleSetupPrompt(msg)
 		case phaseCfgRootMenu:
 			return m.handleRootMenu(msg)
 		case phaseCfgServiceMenu:
@@ -241,14 +255,31 @@ func (m *configureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *configureModel) handleWelcome(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case configureKeyEnter(msg):
-		m.input.SetValue(m.name)
-		m.input.Placeholder = "My App"
-		return m, m.enterInputPhase(phaseCfgName)
+		return m, m.beginProjectSetup()
 	case configureKeyQuit(msg), configureKeyBack(msg):
 		m.aborted = true
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+func (m *configureModel) handleSetupPrompt(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "q", "esc", "n", "N":
+		m.aborted = true
+		return m, tea.Quit
+	case "y", "Y", "enter":
+		return m, m.beginProjectSetup()
+	}
+	return m, nil
+}
+
+func (m *configureModel) beginProjectSetup() tea.Cmd {
+	m.input.SetValue(m.name)
+	if m.name == "" {
+		m.input.Placeholder = "My App"
+	}
+	return m.enterInputPhase(phaseCfgName)
 }
 
 func (m *configureModel) handleTextInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -356,6 +387,9 @@ func (m *configureModel) advanceFromInput() (tea.Model, tea.Cmd) {
 		m.phase = phaseCfgServiceCommand
 		m.input.SetValue("")
 		m.input.Placeholder = "npm run dev"
+		if m.devCommandHint != "" && len(m.services) == 0 {
+			m.input.SetValue(m.devCommandHint)
+		}
 	case phaseCfgServiceCommand:
 		if value == "" {
 			m.errMsg = "command is required"
@@ -1040,6 +1074,9 @@ func (m *configureModel) saveAndQuit() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.done = true
+	if m.fromRun {
+		return m, tea.Quit
+	}
 	m.phase = phaseCfgDone
 	return m, nil
 }
@@ -1069,8 +1106,11 @@ func (m configureModel) View() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(m.renderConfigureHeader())
-	b.WriteString("\n")
+	if m.showConfigureHeader() {
+		b.WriteString(m.renderConfigureHeader())
+		b.WriteString("\n")
+	}
+	m.appendInitProgress(&b)
 
 	if m.errMsg != "" {
 		b.WriteString(errStyle.Render("Error: "+m.errMsg) + "\n\n")
@@ -1079,6 +1119,8 @@ func (m configureModel) View() string {
 	switch m.phase {
 	case phaseCfgWelcome:
 		b.WriteString(m.renderWelcome())
+	case phaseCfgSetupPrompt:
+		b.WriteString(m.renderSetupPrompt())
 	case phaseCfgRootMenu:
 		b.WriteString("What do you want to edit?\n\n")
 		options := rootMenuOptions()
@@ -1172,38 +1214,47 @@ func (m configureModel) View() string {
 		}
 		b.WriteString(helpStyle.Render("y delete  n cancel"))
 	case phaseCfgAddAnother:
-		b.WriteString(fmt.Sprintf("Service saved. You now have %d service(s).\n\n", len(m.services)))
-		b.WriteString("Add another service?\n")
-		b.WriteString(helpStyle.Render("y yes  n no / enter to finish"))
+		b.WriteString(renderInitYesNoPanel(
+			m.width,
+			fmt.Sprintf("Service saved — %d service(s) configured", len(m.services)),
+			"Add another dev service to the stack?",
+			"y yes  n no / enter to finish",
+		))
 	case phaseCfgPreview:
-		b.WriteString("Review your configuration before saving:\n\n")
-		b.WriteString(m.previewYAML())
+		b.WriteString(titleStyle.Render("Review your configuration before saving:"))
+		b.WriteString("\n\n")
+		b.WriteString(renderInitYAMLPreview(m.width, m.previewYAML()))
 		b.WriteString("\n")
 		b.WriteString(helpStyle.Render("enter to continue  esc back  q quit"))
 	case phaseCfgConfirm:
-		b.WriteString(fmt.Sprintf("Save configuration to %s?\n\n", m.outputPath))
-		b.WriteString(mutedStyle.Render("You can edit this file later with `muxdev configure`.\n\n"))
-		b.WriteString(helpStyle.Render("y save  n cancel"))
+		b.WriteString(renderInitYesNoPanel(
+			m.width,
+			"Save configuration?",
+			fmt.Sprintf("Writes %s — edit later with `muxdev configure`.", m.outputPath),
+			"y save  n cancel",
+		))
 	case phaseCfgServicePortConfirm:
-		b.WriteString(fmt.Sprintf("Detected port %s for %q.\n\n", m.discoveredPort, m.currentID))
-		b.WriteString("Use this port?\n\n")
-		b.WriteString(helpStyle.Render("y yes  n enter manually  esc enter manually"))
+		b.WriteString(renderInitYesNoPanel(
+			m.width,
+			fmt.Sprintf("Detected port %s", m.discoveredPort),
+			fmt.Sprintf("Use this port for %q?", m.currentID),
+			"y yes  n enter manually  esc enter manually",
+		))
 	case phaseCfgServicePortDiscover:
-		b.WriteString(fmt.Sprintf("Running %q to detect its port...\n\n", m.currentService.Command))
-		b.WriteString(mutedStyle.Render("This starts the dev command briefly and scans logs for localhost URLs.\n"))
-		b.WriteString(mutedStyle.Render("It may take a few seconds. Press ctrl+c to cancel.\n"))
+		body := fmt.Sprintf("Running %s\n\n", initCodeStyle.Render(m.currentService.Command))
+		body += mutedStyle.Render("Starting the dev command briefly and scanning logs for localhost URLs.") + "\n"
+		body += initAccentStyle.Render("  ◌ ◌ ◌  scanning")
+		b.WriteString(initPanel(m.width, body))
+		b.WriteString("\n")
+		b.WriteString(mutedStyle.Render("May take a few seconds. Press ctrl+c to cancel."))
 	default:
-		b.WriteString(m.phasePrompt())
-		if hint := m.phaseHint(); hint != "" {
-			b.WriteString("\n")
-			b.WriteString(mutedStyle.Render(hint))
-		}
-		if m.portDiscoverNote != "" && m.phase == phaseCfgServicePort {
-			b.WriteString("\n")
-			b.WriteString(selectedStyle.Render(m.portDiscoverNote))
-		}
-		b.WriteString("\n\n")
-		b.WriteString(m.input.View())
+		b.WriteString(renderInitFieldPanel(
+			m.width,
+			m.phasePrompt(),
+			m.phaseHint(),
+			m.portDiscoverNoteField(),
+			m.input.View(),
+		))
 		b.WriteString("\n\n")
 		if m.partialEdit || m.partialProjectEdit {
 			b.WriteString(helpStyle.Render("enter save  esc back"))
@@ -1223,10 +1274,37 @@ func (m configureModel) renderConfigureHeader() string {
 	name := "muxdev configure"
 	subtitle := "Interactive configuration"
 	if m.init {
-		name = "muxdev init"
-		subtitle = "Set up your project"
+		if m.fromRun {
+			name = "muxdev"
+			subtitle = "First-time setup"
+		} else {
+			name = "muxdev init"
+			subtitle = "Set up your project"
+		}
 	}
 	return renderHeader(&config.Config{Name: name, Subtitle: subtitle}, m.width, m.phaseTitle())
+}
+
+func (m configureModel) portDiscoverNoteField() string {
+	if m.portDiscoverNote != "" && m.phase == phaseCfgServicePort {
+		return m.portDiscoverNote
+	}
+	return ""
+}
+
+func (m configureModel) renderSetupPrompt() string {
+	var b strings.Builder
+	b.WriteString(renderLogoCompact(m.width))
+	b.WriteString("\n\n")
+	body := initAccentStyle.Render("First-time setup") + "\n\n"
+	body += "No " + initPathStyle.Render("muxdev.yaml") + " found in this directory.\n\n"
+	body += mutedStyle.Render("Create a manifest, then muxdev opens the service picker.")
+	body += "\n\n"
+	body += mutedStyle.Render("Output: ") + initPathStyle.Render(m.outputPath)
+	b.WriteString(initPanel(m.width, body))
+	b.WriteString("\n\n")
+	b.WriteString(helpStyle.Render("enter / y to begin  n / q to quit"))
+	return b.String()
 }
 
 func (m configureModel) renderWelcome() string {
@@ -1235,15 +1313,21 @@ func (m configureModel) renderWelcome() string {
 	if m.init {
 		b.WriteString(renderLogo(m.width))
 		b.WriteString("\n\n")
-		b.WriteString("Welcome! This wizard creates a ")
-		b.WriteString(selectedStyle.Render("muxdev.yaml"))
-		b.WriteString(" manifest for your project.\n\n")
-		b.WriteString("muxdev runs your local dev services together in one interactive terminal — pick services, stream logs, and shut down cleanly.\n\n")
-		b.WriteString("You'll configure:\n")
-		b.WriteString("  • Project name and subtitle (shown in the TUI header)\n")
-		b.WriteString("  • Dev services — command, port auto-detection, and dependencies\n")
-		b.WriteString("  • A preview before anything is written to disk\n\n")
-		b.WriteString(fmt.Sprintf("Output file: %s\n\n", m.outputPath))
+		intro := initAccentStyle.Render("Welcome") + "\n\n"
+		intro += "This wizard creates a " + initPathStyle.Render("muxdev.yaml") + " manifest for your project.\n\n"
+		intro += mutedStyle.Render("Run your dev services together — pick services, stream logs, and shut down cleanly.")
+		b.WriteString(initPanel(m.width, intro))
+		b.WriteString("\n\n")
+		b.WriteString(initPanel(m.width, renderInitChecklist([]string{
+			"Project name and subtitle (shown in the TUI header)",
+			"Dev services — command, port auto-detection, dependencies",
+			"Preview before anything is written to disk",
+		})))
+		if callout := renderInitDetectionCallout(m.name, m.devCommandHint, m.outputPath); callout != "" {
+			b.WriteString("\n\n")
+			b.WriteString(callout)
+		}
+		b.WriteString("\n\n")
 		b.WriteString(helpStyle.Render("enter to begin  q to quit"))
 		return b.String()
 	}
@@ -1260,23 +1344,14 @@ func (m configureModel) renderWelcome() string {
 func (m configureModel) renderDone() string {
 	var b strings.Builder
 	if m.init {
-		b.WriteString(renderLogo(m.width))
+		b.WriteString(renderLogoCompact(m.width))
 		b.WriteString("\n\n")
 	}
-	b.WriteString(m.renderConfigureHeader())
+	body := initSuccessStyle.Render("✓ Saved ") + initPathStyle.Render(m.outputPath)
+	body += "\n\nYou're all set! Next steps:\n\n"
+	body += renderInitNextSteps()
+	b.WriteString(initPanel(m.width, body))
 	b.WriteString("\n\n")
-	b.WriteString(selectedStyle.Render("✓ Saved "+m.outputPath))
-	b.WriteString("\n\n")
-	b.WriteString("You're all set! Next steps:\n\n")
-	b.WriteString("  ")
-	b.WriteString(selectedStyle.Render("muxdev"))
-	b.WriteString("          Start the interactive dev stack\n")
-	b.WriteString("  ")
-	b.WriteString(selectedStyle.Render("muxdev list"))
-	b.WriteString("   List configured services\n")
-	b.WriteString("  ")
-	b.WriteString(selectedStyle.Render("muxdev configure"))
-	b.WriteString("  Edit this setup later\n\n")
 	b.WriteString(helpStyle.Render("press any key to exit"))
 	return b.String()
 }
@@ -1293,6 +1368,8 @@ func (m configureModel) phaseTitle() string {
 	switch m.phase {
 	case phaseCfgWelcome:
 		return "Welcome"
+	case phaseCfgSetupPrompt:
+		return "Setup"
 	case phaseCfgRootMenu:
 		return "Edit config"
 	case phaseCfgName:

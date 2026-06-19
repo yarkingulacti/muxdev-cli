@@ -58,7 +58,7 @@ func pagesFromCommand(cmd *cobra.Command, prefix string) []Page {
 
 func categoryFor(cmd *cobra.Command) string {
 	switch cmd.Name() {
-	case "init", "configure", "config":
+	case "init", "configure", "config", "remove", "rm":
 		return "Setup"
 	case "logs":
 		return "Logs & sessions"
@@ -153,6 +153,8 @@ func tryCommandFor(cmd *cobra.Command, namePath string) string {
 		return path + " --short"
 	case "list", "ls":
 		return path
+	case "remove", "rm":
+		return path + " --yes"
 	case "path":
 		return path
 	case "logs":

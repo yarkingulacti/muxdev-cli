@@ -192,6 +192,7 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.session = msg.session
 		m.done = false
+		m.shuttingDown = false
 		m.conflictNote = ""
 		m.followTail = true
 		m.refreshLogViewport()
@@ -208,26 +209,29 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForLog(m.logCh)
 	case portKillMsg:
 		m.killPending = false
+		if m.shuttingDown {
+			return m.quitNow()
+		}
 		if msg.err != nil {
 			m.conflictNote = errStyle.Render(fmt.Sprintf(
 				"Could not free port %d: %v",
 				msg.port, msg.err,
 			))
-		} else {
-			m.clearLogs()
-			m.portConflict = nil
-			m.awaitingKill = false
-			m.runErr = nil
+			return m, nil
 		}
-		if msg.err == nil {
-			if m.cancel != nil {
-				m.cancel()
-			}
-			return m, m.startRunner()
+		m.clearLogs()
+		m.portConflict = nil
+		m.awaitingKill = false
+		m.runErr = nil
+		if m.cancel != nil {
+			m.cancel()
 		}
-		return m, nil
+		return m, m.startRunner()
 	case portAttachMsg:
 		m.attachPending = false
+		if m.shuttingDown {
+			return m.quitNow()
+		}
 		if msg.err != nil {
 			m.conflictNote = errStyle.Render(fmt.Sprintf("Could not attach to port %d: %v", msg.port, msg.err))
 			return m, nil
@@ -256,6 +260,9 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(waitForAttachLog(m.attachLogCh), waitForAttachDone(m.attachDoneCh))
 	case attachDoneMsg:
 		if !m.attached {
+			if m.shuttingDown {
+				return m.quitNow()
+			}
 			return m, nil
 		}
 		m.attached = false
@@ -268,6 +275,9 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.conflictNote = mutedStyle.Render("Attached process exited.")
 		}
+		if m.shuttingDown {
+			return m.quitNow()
+		}
 		return m, nil
 	case runDoneMsg:
 		m.drainPendingLogs()
@@ -276,11 +286,17 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_ = m.session.Finish(msg.err)
 			m.session = nil
 		}
+		if m.cancel != nil {
+			m.cancel = nil
+		}
 		if m.attachPending {
+			if m.shuttingDown {
+				return m.quitNow()
+			}
 			return m, nil
 		}
 		if m.shuttingDown {
-			return m, tea.Quit
+			return m.quitNow()
 		}
 		if m.portConflict != nil && m.portConflict.Fatal {
 			m.awaitingKill = true
@@ -288,27 +304,18 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.done = true
-		if m.cancel != nil {
-			m.cancel()
-			m.cancel = nil
-		}
 		m.openRerunMenu()
 		return m, nil
 	case tea.KeyMsg:
+		if runnerForceQuitKey(msg) {
+			return m.requestShutdown(true)
+		}
+		if runnerGracefulQuitKey(msg) {
+			return m.requestShutdown(false)
+		}
+
 		if m.rerunMenu {
 			switch msg.String() {
-			case "ctrl+c", "ctrl+q":
-				if m.done {
-					return m, tea.Quit
-				}
-				m.rerunMenu = false
-				return m, nil
-			case "q":
-				if m.done {
-					return m, tea.Quit
-				}
-				m.rerunMenu = false
-				return m, nil
 			case "esc":
 				m.rerunMenu = false
 				if m.done {
@@ -381,10 +388,6 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
-		case "q":
-			return m.requestShutdown(true)
-		case "ctrl+q", "ctrl+c":
-			return m.requestShutdown(false)
 		case "a", "A":
 			if m.attachPending || m.killPending || m.portConflict == nil || !m.portConflict.Fatal {
 				return m, nil
@@ -513,7 +516,9 @@ func (m runnerModel) View() string {
 	}
 
 	status := fmt.Sprintf("Running: %s", strings.Join(m.serviceIDs, ", "))
-	if m.done {
+	if m.shuttingDown {
+		status = "Shutting down..."
+	} else if m.done {
 		status = "Finished — pick services to re-run"
 	}
 	status += mutedStyle.Render("  ·  " + string(m.runtime))
@@ -527,7 +532,7 @@ func (m runnerModel) View() string {
 	} else if !m.followTail {
 		status += mutedStyle.Render("  ·  history")
 	}
-	header := renderHeader(m.cfg, m.width, status)
+	header := renderRuntimeHeader(m.cfg, m.width, status)
 
 	var body string
 	if m.rerunMenu {
@@ -565,9 +570,9 @@ func (m runnerModel) renderFooter() string {
 		return helpStyle.Render(base)
 	}
 	if m.conflictNote != "" {
-		hint := "a attach  k kill & restart  n ignore  ctrl+q quit  q force quit"
+		hint := "a attach  k kill & restart  n ignore  ctrl+q quit  ctrl+q×2 force  q force"
 		if m.portConflict != nil && !m.portConflict.Fatal {
-			hint = "k free port  ctrl+q quit  q force quit"
+			hint = "k free port  ctrl+q quit  ctrl+q×2 force  q force"
 		}
 		if m.killPending {
 			hint = "freeing port..."
@@ -586,7 +591,7 @@ func (m runnerModel) renderFooter() string {
 		base = logScrollHelpHistory
 	}
 	if m.filterLabel != "" {
-		base = "pgup/pgdn line  ctrl+u/d page  f filter (" + m.filterLabel + ")  ctrl+q quit  q force quit"
+		base = "pgup/pgdn line  ctrl+u/d page  f filter (" + m.filterLabel + ")  ctrl+q quit  ctrl+q×2 force  q force"
 	}
 	if m.updateHint != "" {
 		base = m.updateHint + "  |  " + base
@@ -752,6 +757,7 @@ func (m *runnerModel) applyRerun(chosen []string) (runnerModel, tea.Cmd) {
 	m.serviceIDs = resolved
 	m.rerunMenu = false
 	m.rerunSelected = nil
+	m.shuttingDown = false
 	m.clearLogs()
 	m.portConflict = nil
 	m.awaitingKill = false
@@ -801,41 +807,6 @@ func (m runnerModel) renderRerunMenu() string {
 		width = 20
 	}
 	return cardStyle.Width(width).Render(b.String())
-}
-
-func (m *runnerModel) requestShutdown(forceful bool) (runnerModel, tea.Cmd) {
-	if m.awaitingKill {
-		m.done = true
-	}
-	if m.attachCancel != nil {
-		m.attachCancel()
-	}
-	if m.shutdown != nil {
-		m.shutdown.Forceful = forceful
-	}
-	if m.cancel != nil {
-		if forceful {
-			m.cancel()
-		} else {
-			m.shuttingDown = true
-			m.cancel()
-		}
-	}
-	if forceful {
-		if m.session != nil {
-			_ = m.session.Finish(nil)
-			m.session = nil
-		}
-		return *m, tea.Quit
-	}
-	if m.doneCh == nil {
-		return *m, tea.Quit
-	}
-	return *m, nil
-}
-
-func shouldQuitAfterShutdown(forceful bool, doneCh chan runDoneMsg) bool {
-	return forceful || doneCh == nil
 }
 
 func serviceLogLabel(cfg *config.Config, id string) string {
