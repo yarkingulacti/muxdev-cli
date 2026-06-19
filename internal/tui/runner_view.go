@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -39,6 +40,23 @@ type portKillMsg struct {
 	err    error
 }
 
+type portAttachMsg struct {
+	port    int
+	process portkill.Process
+	label   string
+	err     error
+}
+
+type attachStartedMsg struct {
+	cancel context.CancelFunc
+	logCh  chan logMsg
+	doneCh chan attachDoneMsg
+}
+
+type attachDoneMsg struct {
+	err error
+}
+
 type runnerModel struct {
 	cfg        *config.Config
 	serviceIDs []string
@@ -60,6 +78,12 @@ type runnerModel struct {
 	conflictNote string
 	awaitingKill bool
 	killPending  bool
+	attachPending bool
+	attached     bool
+	attachLabel  string
+	attachCancel context.CancelFunc
+	attachLogCh  chan logMsg
+	attachDoneCh chan attachDoneMsg
 }
 
 func runLogs(cfg *config.Config, serviceIDs []string, workDir, updateHint string) error {
@@ -132,10 +156,15 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(waitForLog(m.logCh), waitForDone(m.doneCh))
 	case logMsg:
 		m.appendLog(msg)
-		m.detectPortConflict(msg)
+		if !m.attached {
+			m.detectPortConflict(msg)
+		}
 		if m.ready {
 			m.viewport.SetContent(m.logContent())
 			m.viewport.GotoBottom()
+		}
+		if m.attached {
+			return m, waitForAttachLog(m.attachLogCh)
 		}
 		return m, waitForLog(m.logCh)
 	case portKillMsg:
@@ -155,11 +184,60 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.startRunner()
 		}
 		return m, nil
+	case portAttachMsg:
+		m.attachPending = false
+		if msg.err != nil {
+			m.conflictNote = errStyle.Render(fmt.Sprintf("Could not attach to port %d: %v", msg.port, msg.err))
+			return m, nil
+		}
+		if m.cancel != nil {
+			m.cancel()
+		}
+		m.clearLogs()
+		m.portConflict = nil
+		m.awaitingKill = false
+		m.runErr = nil
+		m.attached = true
+		m.attachLabel = msg.label
+		m.conflictNote = mutedStyle.Render(fmt.Sprintf(
+			"Attached to PID %d on port %d — %s",
+			msg.process.PID,
+			msg.port,
+			msg.process.Command,
+		))
+		return m, m.startAttach(msg.process.PID, msg.label)
+	case attachStartedMsg:
+		m.attachCancel = msg.cancel
+		m.attachLogCh = msg.logCh
+		m.attachDoneCh = msg.doneCh
+		if m.ready {
+			m.viewport.SetContent(m.logContent())
+			m.viewport.GotoBottom()
+		}
+		return m, tea.Batch(waitForAttachLog(m.attachLogCh), waitForAttachDone(m.attachDoneCh))
+	case attachDoneMsg:
+		if !m.attached {
+			return m, nil
+		}
+		m.attached = false
+		if m.attachCancel != nil {
+			m.attachCancel()
+			m.attachCancel = nil
+		}
+		if msg.err != nil {
+			m.conflictNote = errStyle.Render(fmt.Sprintf("Attach ended: %v", msg.err))
+		} else {
+			m.conflictNote = mutedStyle.Render("Attached process exited.")
+		}
+		return m, nil
 	case runDoneMsg:
 		m.runErr = msg.err
+		if m.attachPending {
+			return m, nil
+		}
 		if m.portConflict != nil && m.portConflict.Fatal {
 			m.awaitingKill = true
-			m.conflictNote = warnStyle.Render(m.portConflict.Message() + " — press k to kill & restart")
+			m.conflictNote = warnStyle.Render(m.portConflict.Message() + conflictActionHint(true))
 			return m, nil
 		}
 		m.done = true
@@ -173,10 +251,20 @@ func (m runnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.awaitingKill {
 				m.done = true
 			}
+			if m.attachCancel != nil {
+				m.attachCancel()
+			}
 			if m.cancel != nil {
 				m.cancel()
 			}
 			return m, tea.Quit
+		case "a", "A":
+			if m.attachPending || m.killPending || m.portConflict == nil || !m.portConflict.Fatal {
+				return m, nil
+			}
+			m.attachPending = true
+			port := m.portConflict.Port
+			return m, attachPortCmd(m.cfg, m.serviceIDs, port)
 		case "k", "K":
 			if m.killPending || m.portConflict == nil {
 				return m, nil
@@ -236,10 +324,17 @@ func (m *runnerModel) detectPortConflict(msg logMsg) {
 		m.portConflict = &conflict
 	}
 	if conflict.Fatal {
-		m.conflictNote = warnStyle.Render(conflict.Message() + " — press k to kill & restart")
+		m.conflictNote = warnStyle.Render(conflict.Message() + conflictActionHint(true))
 	} else if m.conflictNote == "" {
 		m.conflictNote = mutedStyle.Render(conflict.Message() + " — press k to free port")
 	}
+}
+
+func conflictActionHint(fatal bool) string {
+	if fatal {
+		return " — a attach  k kill & restart  n ignore"
+	}
+	return ""
 }
 
 func (m runnerModel) View() string {
@@ -248,7 +343,9 @@ func (m runnerModel) View() string {
 	}
 
 	status := fmt.Sprintf("Running: %s", strings.Join(m.serviceIDs, ", "))
-	if m.awaitingKill {
+	if m.attached {
+		status = fmt.Sprintf("Attached: %s", m.attachLabel)
+	} else if m.awaitingKill {
 		status = "Port conflict — action required"
 	}
 	header := renderHeader(m.cfg, m.width, status)
@@ -265,10 +362,23 @@ func (m runnerModel) View() string {
 }
 
 func (m runnerModel) renderFooter() string {
+	if m.attached {
+		base := "↑/↓ scroll  q quit"
+		if m.conflictNote != "" {
+			return helpStyle.Render(m.conflictNote + "  |  " + base)
+		}
+		return helpStyle.Render(base)
+	}
 	if m.conflictNote != "" {
-		hint := "k kill & restart  n ignore  q quit"
+		hint := "a attach  k kill & restart  n ignore  q quit"
+		if m.portConflict != nil && !m.portConflict.Fatal {
+			hint = "k free port  q quit"
+		}
 		if m.killPending {
 			hint = "freeing port..."
+		}
+		if m.attachPending {
+			hint = "attaching..."
 		}
 		return helpStyle.Render(m.conflictNote + "  |  " + hint)
 	}
@@ -329,6 +439,81 @@ func killPortCmd(port int) tea.Cmd {
 	return func() tea.Msg {
 		killed, err := portkill.KillPort(port)
 		return portKillMsg{port: port, killed: killed, err: err}
+	}
+}
+
+func attachPortCmd(cfg *config.Config, serviceIDs []string, port int) tea.Cmd {
+	return func() tea.Msg {
+		proc, err := portkill.ProcessOnPort(port)
+		if err != nil {
+			return portAttachMsg{port: port, err: err}
+		}
+		return portAttachMsg{
+			port:    port,
+			process: proc,
+			label:   serviceLabelForPort(cfg, serviceIDs, port),
+		}
+	}
+}
+
+func (m runnerModel) startAttach(pid int, label string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithCancel(context.Background())
+		logCh := make(chan logMsg, 128)
+		doneCh := make(chan attachDoneMsg, 1)
+
+		go func() {
+			err := portkill.AttachProcess(ctx, pid, func(stderr bool, text string) {
+				select {
+				case logCh <- logMsg{label: label, stderr: stderr, text: text}:
+				case <-ctx.Done():
+				}
+			})
+			close(logCh)
+			doneCh <- attachDoneMsg{err: err}
+		}()
+
+		return attachStartedMsg{
+			cancel: cancel,
+			logCh:  logCh,
+			doneCh: doneCh,
+		}
+	}
+}
+
+func serviceLabelForPort(cfg *config.Config, serviceIDs []string, port int) string {
+	portStr := strconv.Itoa(port)
+	for _, id := range serviceIDs {
+		svc := cfg.Services[id]
+		if strings.TrimSpace(svc.Port) == portStr {
+			if strings.TrimSpace(svc.Label) != "" {
+				return svc.Label
+			}
+			return id
+		}
+	}
+	return fmt.Sprintf("port:%d", port)
+}
+
+func waitForAttachLog(ch chan logMsg) tea.Cmd {
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		msg, ok := <-ch
+		if !ok {
+			return attachDoneMsg{}
+		}
+		return msg
+	}
+}
+
+func waitForAttachDone(ch chan attachDoneMsg) tea.Cmd {
+	if ch == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		return <-ch
 	}
 }
 

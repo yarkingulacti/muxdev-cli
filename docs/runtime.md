@@ -49,4 +49,4 @@ go build -o muxdev ./cmd/muxdev
 - [x] Goreleaser + GitHub Actions (linux/macos/windows)
 - [x] Install script (`scripts/install.sh`)
 - [ ] Homebrew / Scoop manifests
-- [ ] voice-synt consumer integration
+- [x] voice-synt consumer integration

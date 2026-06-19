@@ -140,29 +140,17 @@ func parseFocus(raw string) []string {
 }
 
 func printServiceList(cfg *config.Config) {
-	ids, err := cfg.SortedServiceIDs()
-	if err != nil {
+	if _, err := cfg.SortedServiceIDs(); err != nil {
 		fmt.Fprintf(os.Stderr, "muxdev: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("%s", cfg.Name)
-	if cfg.Subtitle != "" {
-		fmt.Printf(" — %s", cfg.Subtitle)
+	width := 80
+	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
+		width = w
 	}
-	fmt.Println()
 
-	for _, id := range ids {
-		svc := cfg.Services[id]
-		fmt.Printf("  %s (%s)\n", id, svc.Label)
-		fmt.Printf("    command: %s\n", svc.Command)
-		if svc.Port != "" {
-			fmt.Printf("    port: %s\n", svc.Port)
-		}
-		if len(svc.DependsOn) > 0 {
-			fmt.Printf("    depends_on: %s\n", strings.Join(svc.DependsOn, ", "))
-		}
-	}
+	fmt.Println(tui.RenderServiceList(cfg, width))
 }
 
 func cmdContext() runner.Context {

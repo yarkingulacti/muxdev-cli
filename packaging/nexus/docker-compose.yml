@@ -1,0 +1,33 @@
+# From repo root (loads .env for ${NEXUS_*} substitution + container env):
+#   docker compose --env-file .env -f packaging/nexus/docker-compose.yml up -d
+#
+# Caddy (systemd on host) proxies NEXUS_URL → 127.0.0.1:${NEXUS_PORT}
+
+services:
+  nexus:
+    image: sonatype/nexus3:${NEXUS_IMAGE_TAG:-latest}
+    restart: always
+    env_file:
+      - ../../.env
+    environment:
+      INSTALL4J_ADD_VM_PARAMS: >-
+        -Xms${NEXUS_JVM_MS:-512m}
+        -Xmx${NEXUS_JVM_MX:-2g}
+        -Djava.util.prefs.userRoot=/nexus-data/javaprefs
+    volumes:
+      - nexus-data:/nexus-data
+    ports:
+      - "${NEXUS_BIND_HOST:-127.0.0.1}:${NEXUS_PORT:-8081}:8081"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:8081/service/rest/v1/status/writable >/dev/null || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 3m
+
+volumes:
+  nexus-data:

@@ -69,7 +69,7 @@ func newConfigureCmd() *cobra.Command {
 		Use:     "configure",
 		Aliases: []string{"config"},
 		Short:   "Edit muxdev.yaml interactively",
-		Long:    "Load an existing muxdev.yaml (or create a new one) and edit it with the interactive wizard.",
+		Long:    "Load muxdev.yaml and edit only the fields you choose — no step-by-step wizard.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !term.IsTerminal(int(os.Stdout.Fd())) {
 				return errors.New("configure requires an interactive terminal; use a TTY")
