@@ -10,51 +10,75 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
+// expandKillTargets returns the port-bound PIDs together with their full
+// descendant tree.
+//
+// It deliberately never walks *up* the parent chain. Doing so used to drag
+// ancestors such as the user's login shell or `systemd --user` into the kill
+// set; combined with the process-group signalling below, that could tear down
+// the entire login session when a target had been reparented out of muxdev's
+// own tree (e.g. a leftover service from a previous run).
 func expandKillTargets(pids []int) []int {
 	seen := make(map[int]bool, len(pids)*2)
 	out := make([]int, 0, len(pids)*2)
 
-	add := func(pid int) {
+	add := func(pid int) bool {
 		if pid <= 1 || seen[pid] {
-			return
+			return false
 		}
 		seen[pid] = true
 		out = append(out, pid)
+		return true
+	}
+
+	childrenByParent := readProcessTree()
+
+	var addSubtree func(pid int)
+	addSubtree = func(pid int) {
+		if !add(pid) {
+			return
+		}
+		for _, child := range childrenByParent[pid] {
+			addSubtree(child)
+		}
 	}
 
 	for _, pid := range pids {
-		add(pid)
-		for _, child := range childPIDs(pid) {
-			add(child)
-		}
-		for cur := pid; cur > 1; {
-			parent, err := parentPID(cur)
-			if err != nil || parent <= 1 {
-				break
-			}
-			add(parent)
-			if shouldStopParentWalk(parent) {
-				break
-			}
-			cur = parent
-		}
+		addSubtree(pid)
 	}
 
 	return out
 }
 
-func shouldStopParentWalk(pid int) bool {
-	cmd, err := readCmdline(pid)
+// readProcessTree scans /proc once and returns a parent->children map. On
+// platforms without /proc (e.g. macOS) it returns nil, in which case callers
+// fall back to signalling only the port-bound PIDs themselves.
+func readProcessTree() map[int][]int {
+	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		return false
+		return nil
 	}
-	lower := strings.ToLower(cmd)
-	if strings.Contains(lower, "muxdev") {
-		return true
+
+	tree := make(map[int][]int)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid <= 1 {
+			continue
+		}
+		parent, err := parentPID(pid)
+		if err != nil || parent <= 0 {
+			continue
+		}
+		tree[parent] = append(tree[parent], pid)
 	}
-	return strings.HasPrefix(lower, "ss ") || strings.HasPrefix(lower, "lsof ")
+	return tree
 }
 
 func parentPID(pid int) (int, error) {
@@ -75,30 +99,6 @@ func parentPID(pid int) (int, error) {
 	return 0, fmt.Errorf("ppid not found for %d", pid)
 }
 
-func childPIDs(pid int) []int {
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		return nil
-	}
-
-	var children []int
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		child, err := strconv.Atoi(entry.Name())
-		if err != nil || child <= 1 {
-			continue
-		}
-		parent, err := parentPID(child)
-		if err != nil || parent != pid {
-			continue
-		}
-		children = append(children, child)
-	}
-	return children
-}
-
 func terminatePID(pid int) {
 	signalProcessGroup(pid, syscall.SIGTERM)
 }
@@ -107,15 +107,37 @@ func killPID(pid int) {
 	signalProcessGroup(pid, syscall.SIGKILL)
 }
 
+// signalProcessGroup signals a target process. It escalates to the target's
+// whole process group only when that group is safe to signal (see
+// safeToSignalGroup); otherwise it signals just the single PID. This prevents
+// a stray `kill(-pgid)` from reaching muxdev's own group or, worse, the login
+// session's process group.
 func signalProcessGroup(pid int, sig syscall.Signal) {
-	pgid, err := syscall.Getpgid(pid)
-	if err == nil && pgid > 0 {
+	if pgid, err := unix.Getpgid(pid); err == nil && safeToSignalGroup(pgid) {
 		_ = syscall.Kill(-pgid, sig)
 	}
-	proc, err := os.FindProcess(pid)
-	if err == nil {
+	if proc, err := os.FindProcess(pid); err == nil {
 		_ = proc.Signal(sig)
 	}
+}
+
+// safeToSignalGroup reports whether `kill(-pgid)` may be used for the given
+// process group without risking muxdev itself or the user's session.
+func safeToSignalGroup(pgid int) bool {
+	if pgid <= 1 {
+		return false
+	}
+	// Never signal muxdev's own process group — that would kill the runner
+	// (and, when muxdev shares the terminal's foreground group, the TUI).
+	if own, err := unix.Getpgid(0); err == nil && pgid == own {
+		return false
+	}
+	// A process group whose id is also a session id is a session leader's
+	// group. Signalling it would tear down the whole login/terminal session.
+	if sid, err := unix.Getsid(pgid); err != nil || sid == pgid {
+		return false
+	}
+	return true
 }
 
 func fuserKillPort(port int) error {
