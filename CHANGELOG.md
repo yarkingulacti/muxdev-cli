@@ -5,6 +5,14 @@ All notable changes to **muxdev** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1](https://github.com/yarkingulacti/muxdev-cli/compare/v1.7.0...v1.7.1) (2026-06-21)
+
+
+### Fixed
+
+* **portkill:** stop killing the login session on restart ([d8bec49](https://github.com/yarkingulacti/muxdev-cli/commit/d8bec498ea4dfb1b4e3a112a0006aec45eeea7dd))
+* **portkill:** stop killing the login session on restart ([edf1632](https://github.com/yarkingulacti/muxdev-cli/commit/edf163202180078d390386626a80adc7a3bd76e0))
+
 ## [1.7.0](https://github.com/yarkingulacti/muxdev-cli/compare/v1.6.0...v1.7.0) (2026-06-19)
 
 
